@@ -4,3 +4,4 @@ numpy
 plotly
 reportlab
 openpyxl
+office365-rest-python-client
