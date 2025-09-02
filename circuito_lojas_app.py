@@ -20,7 +20,7 @@ from reportlab.lib.units import mm
 
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
-DATA_FILE_PATH = r"C:\Users\powerbi\MINIPRECO\Análise Comercial - .RelatóriosPBI\CircuitoMiniPreco\BaseCircuito.xlsx"
+DATA_FILE_PATH = "BaseCircuito.xlsx"
 ETAPA_SHEETS = [
     "PlanoVoo", "ProjetoFast", "PontoPartida", "AcoesComerciais", "PainelVendas",
     "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
