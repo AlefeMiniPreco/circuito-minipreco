@@ -12,11 +12,11 @@ import plotly.express as px
 import time
 
 # reportlab para PDFs
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
-from reportlab.lib import colors
-from reportlab.lib.units import mm
+# from reportlab.lib.pagesizes import A4
+# from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+# from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+# from reportlab.lib import colors
+# from reportlab.lib.units import mm
 
 # Módulos para conexão com o SharePoint
 from office365.runtime.auth.user_credential import UserCredential
@@ -106,24 +106,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------- Utils: PDF & image helpers ----------
-def fig_to_png_bytes(fig: go.Figure) -> BytesIO:
-    try:
-        img_bytes = fig.to_image(format="png")
-        return BytesIO(img_bytes)
-    except Exception as exc:
-        st.error(
-            "Falha ao gerar imagem do gráfico para o PDF. "
-            "Verifique se 'kaleido' e 'plotly' estão instalados corretamente.\n\n"
-            "Tente executar: pip install -U kaleido plotly"
-        )
-        raise
+# As funções de geração de PDF foram removidas
+# def fig_to_png_bytes(fig: go.Figure) -> BytesIO:
+#     try:
+#         img_bytes = fig.to_image(format="png")
+#         return BytesIO(img_bytes)
+#     except Exception as exc:
+#         st.error(
+#             "Falha ao gerar imagem do gráfico para o PDF. "
+#             "Verifique se 'kaleido' e 'plotly' estão instalados corretamente.\n\n"
+#             "Tente executar: pip install -U kaleido plotly"
+#         )
+#         raise
 
-def _build_doc_buffer(elements) -> BytesIO:
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+# def _build_doc_buffer(elements) -> BytesIO:
+#     buffer = BytesIO()
+#     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+#     doc.build(elements)
+#     buffer.seek(0)
+#     return buffer
 
 def get_period_range(ciclo: str, selected_periods: list, periodos_df: pd.DataFrame):
     if not ciclo or periodos_df is None or periodos_df.empty:
@@ -451,8 +452,7 @@ def render_geral_page():
     st.markdown("### Classificação Completa")
     st.dataframe(df_final[['Rank', 'Nome_Exibicao', 'Pontos_Totais', 'Progresso']], use_container_width=True, hide_index=True)
 
-    buf_relatorio = gerar_pdf_pagina_geral()
-    st.download_button("📥 Baixar Relatório Completo", data=buf_relatorio.getvalue(), file_name="Relatorio_Circuito_Geral.pdf", mime="application/pdf")
+    # st.download_button("📥 Baixar Relatório Completo", data=buf_relatorio.getvalue(), file_name="Relatorio_Circuito_Geral.pdf", mime="application/pdf")
 
 def render_loja_page():
     st.header("Visão por Loja")
@@ -476,8 +476,7 @@ def render_loja_page():
     etapa_scores_df.columns = [c.replace('_Score','') for c in etapa_scores_df.columns]
     st.dataframe(etapa_scores_df, use_container_width=True, hide_index=True)
 
-    buf_loja = gerar_pdf_pagina_loja(loja_name=loja_sel)
-    st.download_button(f"📥 Baixar PDF — Relatório da Loja ({loja_sel})", data=buf_loja.getvalue(), file_name=f"Relatorio_Loja_{loja_sel}.pdf", mime="application/pdf")
+    # st.download_button(f"📥 Baixar PDF — Relatório da Loja ({loja_sel})", data=buf_loja.getvalue(), file_name=f"Relatorio_Loja_{loja_sel}.pdf", mime="application/pdf")
 
 def render_etapa_page():
     st.header("Visão por Etapa")
@@ -502,140 +501,13 @@ def render_etapa_page():
     st.dataframe(top10, use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    buf_etapa = gerar_pdf_pagina_etapa(etapa_name=etapa_sel)
-    st.download_button(f"📥 Baixar PDF — Visão por Etapa ({etapa_sel})", data=buf_etapa.getvalue(), file_name=f"Visao_Etapa_{etapa_sel}.pdf", mime="application/pdf")
+    # st.download_button(f"📥 Baixar PDF — Visão por Etapa ({etapa_sel})", data=buf_etapa.getvalue(), file_name=f"Visao_Etapa_{etapa_sel}.pdf", mime="application/pdf")
 
 # ---------- PDF Generation Functions (from user's file) ----------
-def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
-    styles = getSampleStyleSheet()
-    title = styles["Title"]; h2 = styles["Heading2"]; normal = styles["Normal"]
-    elements = []
-    elements.append(Paragraph("Circuito MiniPreço — Visão Geral", title))
-    elements.append(Spacer(1, 6))
-    ciclo = st.session_state.get("ciclo", "Não definido"); periodos = st.session_state.get("periodos", [])
-    elements.append(Paragraph(f"Ciclo: <b>{ciclo}</b>", normal))
-    elements.append(Paragraph(f"Períodos: <b>{', '.join(periodos) if periodos else 'Não definido'}</b>", normal))
-    elements.append(Paragraph(f"Gerado em: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ParagraphStyle("small", parent=normal, fontSize=8)))
-    elements.append(Spacer(1, 8))
-    df_final = st.session_state.get("df_final", pd.DataFrame())
-    elements.append(Paragraph("Pódio — Lojas que cruzaram a linha de chegada", h2))
-    if df_final is None or df_final.empty:
-        elements.append(Paragraph("Nenhum dado disponível.", normal))
-        return _build_doc_buffer(elements)
-    podium = df_final[df_final["Progresso"] >= 100.0].sort_values("Rank")
-    if podium.empty:
-        elements.append(Paragraph("Nenhuma loja cruzou a linha de chegada.", normal))
-    else:
-        table_data = [["Rank", "Loja", "Minutos", "Progresso (%)", "Prêmio"]]
-        for _, r in podium.iterrows():
-            pos = int(r["Rank"])
-            premio = PREMIO_TOP1 if pos == 1 else PREMIO_TOP3 if pos in (2,3) else PREMIO_TOP5 if pos in (4,5) else PREMIO_DEMAIS
-            loja_cell = Paragraph(r["Nome_Exibicao"], ParagraphStyle("cell", fontSize=8, wordWrap="CJK"))
-            table_data.append([pos, loja_cell, f"{r['Pontos_Totais']:.1f}", f"{r['Progresso']:.1f}", premio])
-        t = Table(table_data, hAlign="LEFT", colWidths=[16*mm, 40*mm, 20*mm, 25*mm, 40*mm])
-        t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.grey),
-                               ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
-                               ("GRID",(0,0),(-1,-1),0.25,colors.black),
-                               ("VALIGN",(0,0),(-1,-1),"TOP")]))
-        elements.append(t)
-    elements.append(Spacer(1, 8))
-    if include_plots:
-        elements.append(Paragraph("Pista — Progresso das Lojas", h2))
-        fig_pista = build_pista_fig(df_final, max_minutos=get_circuit_total(st.session_state.get('periodos_pesos_df', pd.DataFrame()), st.session_state.get('ciclo'), st.session_state.get('periodos')))
-        img_bytes = fig_to_png_bytes(fig_pista)
-        if img_bytes.getbuffer().nbytes:
-            elements.append(RLImage(img_bytes, width=170*mm))
-        elements.append(Spacer(1, 8))
-    elements.append(Paragraph("Classificação Detalhada (Top 50 exibidas)", styles["Heading3"]))
-
-    # --- Correção principal aqui ---
-    max_etapas_na_tabela = 5 
-    etapa_cols = [c for c in df_final.columns if c.endswith('_Score')][:max_etapas_na_tabela]
-    header = ["Rank", "Loja", "Minutos", "Progresso (%)"] + [c.replace("_Score","") for c in etapa_cols]
-    
-    cell_style = ParagraphStyle("cell", fontSize=8, wordWrap="CJK")
-    rows = [header]
-    for _, r in df_final.head(50).iterrows():
-        loja_cell = Paragraph(r["Nome_Exibicao"], cell_style)
-        row = [int(r["Rank"]), loja_cell, f"{r['Pontos_Totais']:.1f}", f"{r['Progresso']:.1f}"]
-        for c in etapa_cols:
-            row.append(f"{r.get(c,0.0):.1f}")
-        rows.append(row)
-
-    total_largura = 180*mm
-    larguras_fixas = 16*mm
-    largura_loja = 30*mm
-    largura_etapa = (total_largura - 3*larguras_fixas - largura_loja) / max_etapas_na_tabela
-    col_widths = [larguras_fixas, largura_loja, larguras_fixas, larguras_fixas] + [largura_etapa]*max_etapas_na_tabela
-    
-    t2 = Table(rows, hAlign="LEFT", colWidths=col_widths)
-    t2.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),
-                            ("GRID",(0,0),(-1,-1),0.25,colors.black),
-                            ("FONTSIZE",(0,0),(-1,-1),8),
-                            ("VALIGN",(0,0),(-1,-1),"TOP")]))
-    elements.append(t2)
-
-    return _build_doc_buffer(elements)
-
-def gerar_pdf_pagina_loja(loja_name: str | None = None, include_plots: bool = True) -> BytesIO:
-    styles = getSampleStyleSheet(); normal = styles["Normal"]; h2 = styles["Heading2"]
-    elements = []
-    elements.append(Paragraph("Circuito MiniPreço — Visão por Loja", styles["Title"]))
-    elements.append(Spacer(1,6))
-    ciclo = st.session_state.get("ciclo", "Não definido"); periodos = st.session_state.get("periodos", [])
-    elements.append(Paragraph(f"Ciclo: <b>{ciclo}</b>", normal)); elements.append(Paragraph(f"Períodos: <b>{', '.join(periodos) if periodos else 'Não definido'}</b>", normal))
-    elements.append(Spacer(1,8))
-    df_final = st.session_state.get("df_final", pd.DataFrame())
-    if loja_name is None:
-        loja_name = st.session_state.get("loja_sb_ui", None)
-    if df_final is None or df_final.empty or not loja_name:
-        elements.append(Paragraph("Nenhum dado de loja disponível para exportar.", normal))
-        return _build_doc_buffer(elements)
-    loja_row = df_final[df_final["Nome_Exibicao"] == loja_name]
-    if loja_row.empty:
-        elements.append(Paragraph("Loja selecionada não possui dados no período.", normal))
-        return _build_doc_buffer(elements)
-    lr = loja_row.iloc[0]
-    elements.append(Paragraph(f"**Relatório para a Loja: {loja_name}**", h2))
-    elements.append(Spacer(1, 6))
-    elements.append(Paragraph(f"**Pontos Totais:** {lr['Pontos_Totais']:.1f} min", normal))
-    elements.append(Paragraph(f"**Progresso Total:** {lr['Progresso']:.1f}%", normal))
-    elements.append(Paragraph(f"**Rank:** #{int(lr['Rank'])}", normal))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph("Pontuação por Etapa", h2))
-    etapa_scores = {c.replace('_Score',''): lr[c] for c in df_final.columns if c.endswith('_Score')}
-    table_data = [["Etapa", "Pontuação"]]
-    for etapa, score in etapa_scores.items():
-        table_data.append([etapa, f"{score:.1f}"])
-    t_loja = Table(table_data, hAlign="LEFT")
-    t_loja.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey), ("GRID",(0,0),(-1,-1),0.25,colors.black)]))
-    elements.append(t_loja)
-    return _build_doc_buffer(elements)
-
-def gerar_pdf_pagina_etapa(etapa_name: str | None = None, include_plots: bool = True) -> BytesIO:
-    styles = getSampleStyleSheet(); normal = styles["Normal"]; h2 = styles["Heading2"]
-    elements = []
-    elements.append(Paragraph(f"Relatório da Etapa: {etapa_name}", styles["Title"]))
-    elements.append(Spacer(1, 12))
-    df_final = st.session_state.get('df_final')
-    if df_final is None or df_final.empty:
-        elements.append(Paragraph("Nenhum dado disponível.", normal))
-        return _build_doc_buffer(elements)
-    col_name = f"{etapa_name}_Score"
-    if col_name not in df_final.columns:
-        elements.append(Paragraph(f"Dados para a etapa '{etapa_name}' não encontrados.", normal))
-        return _build_doc_buffer(elements)
-    
-    df_etapa = df_final[['Nome_Exibicao', col_name]].copy().rename(columns={col_name:"Pontuação"}).sort_values("Pontuação", ascending=False)
-    
-    elements.append(Paragraph("Classificação da Etapa", h2))
-    table_data = [["Rank", "Loja", "Pontuação"]]
-    for i, (_, row) in enumerate(df_etapa.iterrows()):
-        table_data.append([i+1, row["Nome_Exibicao"], f"{row['Pontuação']:.1f}"])
-    t = Table(table_data, hAlign="LEFT")
-    t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.grey), ("GRID",(0,0),(-1,-1),0.25,colors.black)]))
-    elements.append(t)
-    return _build_doc_buffer(elements)
+# Todas as funções de geração de PDF foram removidas:
+# gerar_pdf_pagina_geral
+# gerar_pdf_pagina_loja
+# gerar_pdf_pagina_etapa
 
 # ---------- Inicializações de sessão ----------
 if 'page' not in st.session_state: st.session_state.page = "Geral"
