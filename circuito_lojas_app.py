@@ -22,6 +22,7 @@ from reportlab.lib.units import mm
 from office365.runtime.auth.user_credential import UserCredential
 from office365.sharepoint.client_context import ClientContext
 
+
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
 # ----------------- SharePoint Configuration and Data Loading -----------------
@@ -529,9 +530,13 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
         for _, r in podium.iterrows():
             pos = int(r["Rank"])
             premio = PREMIO_TOP1 if pos == 1 else PREMIO_TOP3 if pos in (2,3) else PREMIO_TOP5 if pos in (4,5) else PREMIO_DEMAIS
-            table_data.append([pos, r["Nome_Exibicao"], f"{r['Pontos_Totais']:.1f}", f"{r['Progresso']:.1f}", premio])
-        t = Table(table_data, hAlign="LEFT")
-        t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.grey), ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke), ("GRID",(0,0),(-1,-1),0.25,colors.black)]))
+            loja_cell = Paragraph(r["Nome_Exibicao"], ParagraphStyle("cell", fontSize=8, wordWrap="CJK"))
+            table_data.append([pos, loja_cell, f"{r['Pontos_Totais']:.1f}", f"{r['Progresso']:.1f}", premio])
+        t = Table(table_data, hAlign="LEFT", colWidths=[16*mm, 40*mm, 20*mm, 25*mm, 40*mm])
+        t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.grey),
+                               ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
+                               ("GRID",(0,0),(-1,-1),0.25,colors.black),
+                               ("VALIGN",(0,0),(-1,-1),"TOP")]))
         elements.append(t)
     elements.append(Spacer(1, 8))
     if include_plots:
@@ -543,34 +548,32 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
         elements.append(Spacer(1, 8))
     elements.append(Paragraph("Classificação Detalhada (Top 50 exibidas)", styles["Heading3"]))
 
-    # *** INÍCIO DA CORREÇÃO DE LAYOUT DO PDF ***
+    # --- Correção principal aqui ---
     max_etapas_na_tabela = 5 
     etapa_cols = [c for c in df_final.columns if c.endswith('_Score')][:max_etapas_na_tabela]
-    
     header = ["Rank", "Loja", "Minutos", "Progresso (%)"] + [c.replace("_Score","") for c in etapa_cols]
     
+    cell_style = ParagraphStyle("cell", fontSize=8, wordWrap="CJK")
     rows = [header]
     for _, r in df_final.head(50).iterrows():
-        row = [int(r["Rank"]), r["Nome_Exibicao"], f"{r['Pontos_Totais']:.1f}", f"{r['Progresso']:.1f}"]
+        loja_cell = Paragraph(r["Nome_Exibicao"], cell_style)
+        row = [int(r["Rank"]), loja_cell, f"{r['Pontos_Totais']:.1f}", f"{r['Progresso']:.1f}"]
         for c in etapa_cols:
             row.append(f"{r.get(c,0.0):.1f}")
         rows.append(row)
 
     total_largura = 180*mm
-    # Defina larguras fixas para colunas de dados pequenos e flexíveis para as de texto
-    larguras_fixas = 16*mm # Largura para Rank, Minutos, Progresso (%)
-    largura_loja = 40*mm # Largura para o nome da loja
+    larguras_fixas = 16*mm
+    largura_loja = 30*mm
     largura_etapa = (total_largura - 3*larguras_fixas - largura_loja) / max_etapas_na_tabela
+    col_widths = [larguras_fixas, largura_loja, larguras_fixas, larguras_fixas] + [largura_etapa]*max_etapas_na_tabela
     
-    # Crie a lista de larguras de colunas
-    col_widths = [larguras_fixas, largura_loja, larguras_fixas, larguras_fixas]
-    for _ in range(max_etapas_na_tabela):
-        col_widths.append(largura_etapa)
-        
     t2 = Table(rows, hAlign="LEFT", colWidths=col_widths)
-    t2.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey), ("GRID",(0,0),(-1,-1),0.25,colors.black), ("FONTSIZE",(0,0),(-1,-1),8)]))
+    t2.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),
+                            ("GRID",(0,0),(-1,-1),0.25,colors.black),
+                            ("FONTSIZE",(0,0),(-1,-1),8),
+                            ("VALIGN",(0,0),(-1,-1),"TOP")]))
     elements.append(t2)
-    # *** FIM DA CORREÇÃO ***
 
     return _build_doc_buffer(elements)
 
