@@ -29,6 +29,9 @@ st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="w
 SHAREPOINT_SITE_URL = "https://miniprecoltda.sharepoint.com/sites/AnliseComercial"
 SHAREPOINT_FILE_PATH = "Shared Documents/General/.RelatóriosPBI/CircuitoMiniPreco/BaseCircuito.xlsx"
 
+# Use st.cache_data para o carregamento do arquivo em si, que é a parte que pode ser
+# lenta. Isso ainda permite recarregar a página com o 'Rerun' do Streamlit.
+@st.cache_data(show_spinner="Carregando dados do SharePoint...")
 def get_data_from_sharepoint():
     """Baixa o arquivo do SharePoint e retorna como um DataFrame do pandas."""
     try:
@@ -55,21 +58,6 @@ def get_data_from_sharepoint():
         # Lê o arquivo diretamente para o pandas a partir do buffer
         df = pd.read_excel(file_buffer, sheet_name=None, engine='openpyxl')
         return df
-
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados do SharePoint: {e}")
-        st.warning("Verifique se as credenciais no Streamlit Secrets e a URL do SharePoint estão corretas.")
-        return {} # Retorna um dicionário vazio em caso de erro
-
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados do SharePoint: {e}")
-        st.warning("Verifique se as credenciais no Streamlit Secrets e a URL do SharePoint estão corretas.")
-        return {} # Retorna um dicionário vazio em caso de erro
-
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados do SharePoint: {e}")
-        st.warning("Verifique se as credenciais no Streamlit Secrets e a URL do SharePoint estão corretas.")
-        return {} # Retorna um dicionário vazio em caso de erro
 
     except Exception as e:
         st.error(f"Erro ao carregar os dados do SharePoint: {e}")
@@ -220,6 +208,7 @@ def render_podio_table(df_final: pd.DataFrame):
 # ---------- Data loading & preparation ----------
 # A função 'get_data_from_sharepoint' já carrega o arquivo completo.
 # A função a seguir processa o dicionário de DataFrames.
+# Use st.cache_data aqui também para evitar processamento pesado em cada interação
 @st.cache_data(show_spinner=False)
 def load_and_prepare_data(all_sheets: dict):
     """
@@ -642,28 +631,23 @@ if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
 if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
 if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
 
-@st.cache_resource
-def load_data_and_warm_cache():
-    all_sheets = get_data_from_sharepoint()
-    if not all_sheets:
-        return False
-        
-    data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
-    
-    st.session_state.data_original = data
-    st.session_state.etapas_scores = etapas_scores
-    st.session_state.etapas_info = etapas_info
-    st.session_state.periodos_df = periodos_df
-    st.session_state.periodos_formatados = periodos_formatados
-    st.session_state.periodos_pesos_df = periodos_pesos_df
-    st.session_state.etapas_pesos_df = etapas_pesos_df
-    _ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
-    return True
 
 # Tenta carregar os dados
-if not load_data_and_warm_cache():
+all_sheets = get_data_from_sharepoint()
+if not all_sheets:
     st.error("Não foi possível carregar os dados. Verifique a conexão com o SharePoint e as credenciais.")
     st.stop()
+    
+data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
+
+st.session_state.data_original = data
+st.session_state.etapas_scores = etapas_scores
+st.session_state.etapas_info = etapas_info
+st.session_state.periodos_df = periodos_df
+st.session_state.periodos_formatados = periodos_formatados
+st.session_state.periodos_pesos_df = periodos_pesos_df
+st.session_state.etapas_pesos_df = etapas_pesos_df
+_ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
 
 # ---------- Sidebar ----------
 with st.sidebar:
