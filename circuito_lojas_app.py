@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # circuito_lojas_app.py
-# Versão ajustada: notas -> minutos; circuito total = soma dos pesos dos períodos selecionados
-# Ajustes: robustez na geração de imagens (kaleido) e escalonamento de imagens para ReportLab (evita LayoutError)
-
+# Versão: adicionada exibição/relatório de versões das dependências (debug) + código base adaptado
 import os
 from io import BytesIO
 from datetime import datetime
@@ -11,7 +9,6 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
-import plotly.io as pio
 import time
 
 # reportlab para PDFs
@@ -20,11 +17,20 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib import colors
 from reportlab.lib.units import mm
-from reportlab.lib.utils import ImageReader
-from reportlab.platypus.doctemplate import LayoutError as RLLayoutError
 
+# --- imports para checagem de versões ---
+import importlib
+import sys
+try:
+    # importlib.metadata (py3.8+)
+    from importlib import metadata
+except Exception:
+    metadata = None
+
+# ---------------- Streamlit config ----------------
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
+# ---------------- Config / constantes ----------------
 DATA_FILE_PATH = r"C:\Users\powerbi\MINIPRECO\Análise Comercial - .RelatóriosPBI\CircuitoMiniPreco\BaseCircuito.xlsx"
 ETAPA_SHEETS = [
     "PlanoVoo", "ProjetoFast", "PontoPartida", "AcoesComerciais", "PainelVendas",
@@ -36,7 +42,70 @@ PREMIO_TOP3 = "Bônus Prata"
 PREMIO_TOP5 = "Bônus Bronze"
 PREMIO_DEMAIS = "Reconhecimento + Plano de Ação"
 
-# CSS (mantive estilo de pista/pódio)
+# ---------------- Funções de checagem de versões ----------------
+def get_version(pkg_name: str, import_name: str | None = None) -> str:
+    """
+    Tenta obter versão via import (módulo.__version__) e depois via importlib.metadata.version
+    Se não encontrar, retorna texto explicativo.
+    """
+    imn = import_name or pkg_name
+    try:
+        m = importlib.import_module(imn)
+        ver = getattr(m, "__version__", None)
+        if ver:
+            return str(ver)
+    except Exception:
+        # falha ao importar -> continuar para metadata
+        pass
+    # tentar importlib.metadata (nome de pacote PyPI)
+    if metadata is not None:
+        try:
+            return metadata.version(pkg_name)
+        except Exception:
+            pass
+    return "não instalado / versão não detectada"
+
+def build_versions_report(packages: list[tuple[str, str | None]]) -> dict:
+    """
+    packages: lista de tuplas (pip_name, import_name_or_None)
+    Retorna dict {pip_name: version_str}
+    """
+    out = {}
+    for pip_name, import_name in packages:
+        try:
+            out[pip_name] = get_version(pip_name, import_name)
+        except Exception as e:
+            out[pip_name] = f"erro ao obter versão: {e}"
+    return out
+
+def versions_dict_to_text(d: dict) -> str:
+    lines = []
+    lines.append(f"Relatório de versões gerado em {datetime.now().isoformat()}")
+    lines.append("")
+    for k, v in d.items():
+        lines.append(f"{k}: {v}")
+    lines.append("")
+    # informações de ambiente
+    lines.append(f"Python: {sys.version.replace(chr(10), ' ')}")
+    try:
+        import platform
+        lines.append(f"Platform: {platform.platform()}")
+    except Exception:
+        pass
+    return "\n".join(lines)
+
+# Lista de pacotes a checar: (nome no pip, nome para importar opcional)
+DEFAULT_PACKAGES_TO_CHECK = [
+    ("streamlit", None),
+    ("pandas", None),
+    ("plotly", None),
+    ("kaleido", "kaleido"),
+    ("reportlab", "reportlab"),
+    ("openpyxl", "openpyxl"),
+    ("office365-rest-python-client", "office365"),  # import name pode variar; tentamos 'office365'
+]
+
+# ---------------- CSS (mantive estilo de pista/pódio) ----------------
 st.markdown("""
 <style>
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
@@ -65,79 +134,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- Helpers para gerar imagens + PDF (robustos) ----------------
-
-def fig_to_png_bytes(fig: go.Figure, width: int | None = None, height: int | None = None) -> BytesIO:
-    """
-    Gera bytes PNG a partir de uma figure do plotly usando pio.to_image (kaleido).
-    width/height opcionais (pixels) para controlar a saída e evitar imagens gigantes.
-    Retorna BytesIO já com seek(0).
-    """
+# ---------- Utils: PDF & image helpers ----------
+def fig_to_png_bytes(fig: go.Figure) -> BytesIO:
     try:
-        params = {}
-        if width is not None:
-            params['width'] = int(width)
-        if height is not None:
-            params['height'] = int(height)
-        # garantir que kaleido esteja sendo usado explicitamente
-        # (se não estiver disponível, pio.to_image lançará)
-        img_bytes = pio.to_image(fig, format="png", **params)
-        bio = BytesIO(img_bytes)
-        bio.seek(0)
-        return bio
+        img_bytes = fig.to_image(format="png")
+        return BytesIO(img_bytes)
     except Exception as exc:
-        # Mensagem amigável no Streamlit e relançar para logs
         st.error(
             "Falha ao gerar imagem do gráfico para o PDF. "
             "Verifique se 'kaleido' e 'plotly' estão instalados corretamente.\n\n"
-            "Tente executar localmente: pip install -U kaleido plotly\n"
-            "Veja os logs completos (Manage app -> Logs) no Streamlit Cloud."
+            "Tente executar: pip install -U kaleido plotly"
         )
         raise
 
-def make_rl_image_from_bytes(img_bytes: BytesIO, max_width_mm: float = 170.0, max_height_mm: float = 230.0) -> RLImage:
-    """
-    Cria um reportlab.platypus.Image (RLImage) a partir de BytesIO,
-    escalonando para caber dentro de max_width_mm x max_height_mm mantendo proporção.
-    Retorna RLImage pronta para append em flowables.
-    """
-    # garantir ponteiro no começo
-    img_bytes.seek(0)
-    try:
-        reader = ImageReader(img_bytes)
-        iw, ih = reader.getSize()  # (pixels)
-    except Exception as e:
-        raise ValueError("Não foi possível ler a imagem (ImageReader).") from e
-
-    # converter limites mm -> points (reportlab usa points)
-    max_w_pts = max_width_mm * mm
-    max_h_pts = max_height_mm * mm
-
-    if iw == 0 or ih == 0:
-        raise ValueError("Imagem possui dimensão inválida (0).")
-
-    # calcular escala (não amplia além do original)
-    scale = min(max_w_pts / iw, max_h_pts / ih, 1.0)
-    width_pts = iw * scale
-    height_pts = ih * scale
-
-    img_bytes.seek(0)
-    return RLImage(img_bytes, width=width_pts, height=height_pts)
-
-
 def _build_doc_buffer(elements) -> BytesIO:
-    """
-    Constrói o documento PDF a partir de flowables (elements).
-    Caso ocorra LayoutError, re-lança com mensagem detalhada (logs).
-    """
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
-    try:
-        doc.build(elements)
-    except RLLayoutError as le:
-        # adicionar detalhe de erro para logs e alerta ao usuário em streamlit
-        st.error("Erro de layout ao gerar o PDF (LayoutError). Verifique imagens/tabelas muito grandes. Consulte os logs para detalhes.")
-        raise
+    doc.build(elements)
     buffer.seek(0)
     return buffer
 
@@ -237,7 +250,8 @@ def load_and_prepare_data(data_path: str, sheets: list):
         try:
             df_etapa = _read_excel_safe(data_path, sheet_name)
             df_etapa.columns = [c.strip() for c in df_etapa.columns]
-            # aceitar se colunas essenciais existirem (Pode haver sheets sem todas)
+            required_cols = ['NomeLoja', 'loja_key', 'Nota', 'NotaMaxima', 'PesoDaEtapa', 'Ciclo', 'Período']
+            # aceitar se colunas essenciais existirem (Пode haver sheets sem todas)
             if not all(col in df_etapa.columns for col in ['NomeLoja','loja_key','Nota','Ciclo','Período']):
                 continue
 
@@ -401,7 +415,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     fig = go.Figure()
     num_lojas = len(data)
     y_positions = np.arange(num_lojas)
-
+    
     if max_minutos is None:
         max_minutos = data["Pontos_Totais"].max()
 
@@ -409,7 +423,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     def escala_visual(x):
         return np.sqrt(x)
 
-    max_vis = escala_visual(max_minutos) if max_minutos and max_minutos > 0 else 1
+    max_vis = escala_visual(max_minutos)
 
     # fundo da pista (reta total)
     for y in y_positions:
@@ -419,7 +433,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     # Linha de chegada (bandeira quadriculada)
     fig.add_shape(type="line", x0=max_vis, y0=-1, x1=max_vis, y1=num_lojas,
                   line=dict(color="black", width=4, dash="solid"))
-
+    
     # Adicionar bandeira quadriculada no final da pista
     for y in range(num_lojas + 2):
         if y % 2 == 0:
@@ -432,22 +446,22 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     # carros 🚗 e bandeira 🏁
     for y, row in zip(y_positions, data.itertuples()):
         x_carro = escala_visual(row.Pontos_Totais)
-        x_fim = escala_visual(max_minutos) if max_minutos and max_minutos > 0 else escala_visual(row.Pontos_Totais)
-
+        x_fim = escala_visual(max_minutos)
+        
         # Determinar se cruzou a linha de chegada
-        cruzou_linha = (row.Pontos_Totais >= max_minutos) if max_minutos and max_minutos > 0 else False
-
+        cruzou_linha = row.Pontos_Totais >= max_minutos
+        
         # Escolher emoji e tamanho com base se cruzou a linha
         car_text = "🏁🚗" if cruzou_linha else "🚗"
         text_size = 35 if cruzou_linha else 30  # Maior para os que completaram
         text_color = "gold" if cruzou_linha else None  # Cor dourada para os que completaram
-
+        
         hover = f"<b>{row.Nome_Exibicao}</b><br>Minutos: {row.Pontos_Totais:.1f}<br>Progresso: {row.Progresso:.1f}%<br>Rank: #{int(row.Rank)}"
 
         # carro
         fig.add_trace(go.Scatter(
             x=[x_carro], y=[y], mode="text", text=[car_text],
-            textfont=dict(size=text_size, color=text_color),
+            textfont=dict(size=text_size, color=text_color), 
             hoverinfo="text", hovertext=hover, showlegend=False
         ))
         # nome da loja
@@ -464,7 +478,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
         height=250 + 70*num_lojas, margin=dict(l=10, r=10, t=80, b=40),
         plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)"
     )
-
+    
     return fig
 
 # ---------- Inicializações de sessão ----------
@@ -495,12 +509,7 @@ def load_data_and_warm_cache():
     _ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
     return True
 
-try:
-    load_data_and_warm_cache()
-except Exception:
-    pass
-
-# ---------- Sidebar ----------
+# ---------- Sidebar (adicionado: painel de versões) ----------
 with st.sidebar:
     st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
     st.markdown("---")
@@ -523,7 +532,36 @@ with st.sidebar:
     if st.button("Visão por Loja", use_container_width=True): st.session_state.page = "Loja"
     if st.button("Visão por Etapa", use_container_width=True): st.session_state.page = "Etapa"
 
+    # ---------- Painel de versões ----------
+    st.markdown("---")
+    with st.expander("Versões das dependências (diagnóstico)"):
+        st.write("Clique em 'Atualizar' para reavaliar as versões detectadas na instância.")
+        if st.button("Atualizar versões", key="btn_refresh_versions"):
+            # força rechecagem quando o usuário clicar
+            ver = build_versions_report(DEFAULT_PACKAGES_TO_CHECK)
+            txt = versions_dict_to_text(ver)
+            st.code("\n".join([f"{k}: {v}" for k, v in ver.items()]), language="text")
+            # botão para baixar relatório
+            b = BytesIO(txt.encode("utf-8"))
+            st.download_button("📄 Baixar relatório de versões", data=b.getvalue(), file_name="versoes_dependencias.txt", mime="text/plain")
+            # imprimir nos logs
+            print("VERSÕES (atualizadas):", ver)
+        else:
+            # exibe as versões detectadas (cache-friendly)
+            ver = build_versions_report(DEFAULT_PACKAGES_TO_CHECK)
+            txt = versions_dict_to_text(ver)
+            st.write("Versões detectadas (instância atual):")
+            st.code("\n".join([f"{k}: {v}" for k, v in ver.items()]), language="text")
+            b = BytesIO(txt.encode("utf-8"))
+            st.download_button("📄 Baixar relatório de versões", data=b.getvalue(), file_name="versoes_dependencias.txt", mime="text/plain")
+
 # ---------- Validação / cálculo ----------
+try:
+    load_data_and_warm_cache()
+except Exception:
+    # se der erro ao carregar dados, apenas segue para avisar na UI
+    pass
+
 if st.session_state.data_original is None or st.session_state.data_original.empty:
     st.warning("Dados ainda não carregados ou arquivo vazio. Verifique DATA_FILE_PATH.")
 else:
@@ -606,22 +644,9 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
     if include_plots:
         elements.append(Paragraph("Pista — Progresso das Lojas", h2))
         fig_pista = build_pista_fig(df_final, max_minutos=get_circuit_total(st.session_state.get('periodos_pesos_df', pd.DataFrame()), st.session_state.get('ciclo'), st.session_state.get('periodos')))
-        # gerar PNG controlando largura para evitar imagens enormes
-        try:
-            img_bytes = fig_to_png_bytes(fig_pista, width=900)
-            if img_bytes.getbuffer().nbytes:
-                try:
-                    rl_img = make_rl_image_from_bytes(img_bytes, max_width_mm=170.0, max_height_mm=190.0)
-                    elements.append(rl_img)
-                    elements.append(Spacer(1, 8))
-                except RLLayoutError:
-                    img_bytes.seek(0)
-                    rl_img = make_rl_image_from_bytes(img_bytes, max_width_mm=140.0, max_height_mm=160.0)
-                    elements.append(rl_img)
-                    elements.append(Spacer(1, 8))
-        except Exception:
-            # já exibimos erro amigável no fig_to_png_bytes, apenas seguir sem a imagem
-            elements.append(Paragraph("Imagem da pista não disponível devido a erro na geração da imagem.", normal))
+        img_bytes = fig_to_png_bytes(fig_pista)
+        if img_bytes.getbuffer().nbytes:
+            elements.append(RLImage(img_bytes, width=170*mm))
             elements.append(Spacer(1, 8))
 
     elements.append(Paragraph("Classificação Detalhada (Top 50 exibidas)", styles["Heading3"]))
@@ -686,18 +711,9 @@ def gerar_pdf_pagina_loja(loja_name: str | None = None, include_plots: bool = Tr
         df_opp = pd.DataFrame(oportunidades).sort_values("Percentual").head(5)
         if not df_opp.empty:
             fig_opp = go.Figure(go.Bar(y=df_opp["Etapa"], x=df_opp["Percentual"], orientation="h"))
-            try:
-                img_opp = fig_to_png_bytes(fig_opp, width=700)
-                if img_opp.getbuffer().nbytes:
-                    try:
-                        elements.append(make_rl_image_from_bytes(img_opp, max_width_mm=150.0, max_height_mm=120.0))
-                        elements.append(Spacer(1,6))
-                    except RLLayoutError:
-                        img_opp.seek(0)
-                        elements.append(make_rl_image_from_bytes(img_opp, max_width_mm=120.0, max_height_mm=100.0))
-                        elements.append(Spacer(1,6))
-            except Exception:
-                elements.append(Paragraph("Gráfico de oportunidades não disponível.", normal))
+            img_opp = fig_to_png_bytes(fig_opp)
+            if img_opp.getbuffer().nbytes:
+                elements.append(RLImage(img_opp, width=150*mm))
                 elements.append(Spacer(1,6))
 
     if include_plots and etapas_keys:
@@ -706,18 +722,9 @@ def gerar_pdf_pagina_loja(loja_name: str | None = None, include_plots: bool = Tr
         percentual = [(ri/pi*100) if (pi and pi>0) else 0 for ri,pi in zip(r,pesos)]
         theta = [e.replace("_Score","") for e in etapas_keys]
         fig_radar = go.Figure(go.Scatterpolar(r=percentual, theta=theta, fill="toself"))
-        try:
-            img_radar = fig_to_png_bytes(fig_radar, width=700)
-            if img_radar.getbuffer().nbytes:
-                try:
-                    elements.append(make_rl_image_from_bytes(img_radar, max_width_mm=150.0, max_height_mm=120.0))
-                    elements.append(Spacer(1,6))
-                except RLLayoutError:
-                    img_radar.seek(0)
-                    elements.append(make_rl_image_from_bytes(img_radar, max_width_mm=120.0, max_height_mm=100.0))
-                    elements.append(Spacer(1,6))
-        except Exception:
-            elements.append(Paragraph("Gráfico radar não disponível.", normal))
+        img_radar = fig_to_png_bytes(fig_radar)
+        if img_radar.getbuffer().nbytes:
+            elements.append(RLImage(img_radar, width=150*mm))
             elements.append(Spacer(1,6))
 
     tabel_et = [["Etapa", "Minutos", "Peso da Etapa (seleção)", "Desempenho (%)"]]
@@ -762,18 +769,9 @@ def gerar_pdf_pagina_etapa(etapa_name: str | None = None, include_plots: bool = 
 
     if include_plots:
         fig_hist = px.histogram(etapa_df, x="Minutos", nbins=20)
-        try:
-            imgh = fig_to_png_bytes(fig_hist, width=900)
-            if imgh.getbuffer().nbytes:
-                try:
-                    elements.append(make_rl_image_from_bytes(imgh, max_width_mm=160.0, max_height_mm=120.0))
-                    elements.append(Spacer(1,8))
-                except RLLayoutError:
-                    imgh.seek(0)
-                    elements.append(make_rl_image_from_bytes(imgh, max_width_mm=140.0, max_height_mm=100.0))
-                    elements.append(Spacer(1,8))
-        except Exception:
-            elements.append(Paragraph("Histograma não disponível.", normal))
+        imgh = fig_to_png_bytes(fig_hist)
+        if imgh.getbuffer().nbytes:
+            elements.append(RLImage(imgh, width=160*mm))
             elements.append(Spacer(1,8))
 
     if not etapa_df["Minutos"].empty:
