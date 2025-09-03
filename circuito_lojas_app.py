@@ -30,9 +30,7 @@ st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="w
 SHAREPOINT_SITE_URL = "https://miniprecoltda.sharepoint.com/sites/AnliseComercial"
 SHAREPOINT_FILE_PATH = "Shared Documents/General/.RelatóriosPBI/CircuitoMiniPreco/BaseCircuito.xlsx"
 
-# Use st.cache_data para o carregamento do arquivo em si, que é a parte que pode ser
-# lenta. Isso ainda permite recarregar a página com o 'Rerun' do Streamlit.
-@st.cache_data(show_spinner="Carregando dados do SharePoint...")
+# Removido o cache para recarregar a planilha a cada refresh da página.
 def get_data_from_sharepoint():
     """Baixa o arquivo do SharePoint e retorna como um DataFrame do pandas."""
     try:
@@ -210,8 +208,7 @@ def render_podio_table(df_final: pd.DataFrame):
 # ---------- Data loading & preparation ----------
 # A função 'get_data_from_sharepoint' já carrega o arquivo completo.
 # A função a seguir processa o dicionário de DataFrames.
-# Use st.cache_data aqui também para evitar processamento pesado em cada interação
-@st.cache_data(show_spinner=False)
+# Removido o cache para garantir que os dados sejam re-processados a cada refresh da página.
 def load_and_prepare_data(all_sheets: dict):
     """
     Processa o dicionário de DataFrames obtido do SharePoint e
@@ -543,12 +540,14 @@ if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_
 if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
 
 # Tenta carregar os dados
-all_sheets = get_data_from_sharepoint()
+with st.spinner("Carregando dados do SharePoint..."):
+    all_sheets = get_data_from_sharepoint()
 if not all_sheets:
     st.error("Não foi possível carregar os dados. Verifique a conexão com o SharePoint e as credenciais.")
     st.stop()
     
-data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
+with st.spinner("Processando dados..."):
+    data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
 
 st.session_state.data_original = data
 st.session_state.etapas_scores = etapas_scores
