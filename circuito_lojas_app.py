@@ -336,10 +336,7 @@ def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_p
     score_cols = [c for c in df.columns if c.endswith('_Score')]
     if not score_cols:
         return pd.DataFrame()
-    
-    # A variável 'periodos' é passada corretamente para 'get_circuit_total' como 'selected_periodos'
     max_minutos = get_circuit_total(periodos_pesos_df, ciclo, periodos)
-    
     aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum()
     aggregated['Ciclo'] = ciclo
     final = calculate_final_scores(aggregated, score_cols, max_minutos)
@@ -539,12 +536,7 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
     elements.append(Spacer(1, 8))
     if include_plots:
         elements.append(Paragraph("Pista — Progresso das Lojas", h2))
-        periodos_pesos_df = st.session_state.get('periodos_pesos_df', pd.DataFrame())
-        if not periodos_pesos_df.empty and st.session_state.get('ciclo') and st.session_state.get('periodos'):
-            max_minutos = get_circuit_total(periodos_pesos_df, st.session_state.get('ciclo'), st.session_state.get('periodos'))
-        else:
-            max_minutos = 0
-        fig_pista = build_pista_fig(df_final, max_minutos=max_minutos)
+        fig_pista = build_pista_fig(df_final, max_minutos=get_circuit_total(st.session_state.get('periodos_pesos_df', pd.DataFrame()), st.session_state.get('ciclo'), st.session_state.get('periodos')))
         img_bytes = fig_to_png_bytes(fig_pista)
         if img_bytes.getbuffer().nbytes:
             elements.append(RLImage(img_bytes, width=170*mm))
