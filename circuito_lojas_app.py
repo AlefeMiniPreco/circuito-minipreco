@@ -336,7 +336,10 @@ def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_p
     score_cols = [c for c in df.columns if c.endswith('_Score')]
     if not score_cols:
         return pd.DataFrame()
+    
+    # A variável 'periodos' é passada corretamente para 'get_circuit_total' como 'selected_periodos'
     max_minutos = get_circuit_total(periodos_pesos_df, ciclo, periodos)
+    
     aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum()
     aggregated['Ciclo'] = ciclo
     final = calculate_final_scores(aggregated, score_cols, max_minutos)
@@ -536,7 +539,12 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
     elements.append(Spacer(1, 8))
     if include_plots:
         elements.append(Paragraph("Pista — Progresso das Lojas", h2))
-        fig_pista = build_pista_fig(df_final, max_minutos=get_circuit_total(st.session_state.get('periodos_pesos_df', pd.DataFrame()), st.session_state.get('ciclo'), st.session_state.get('periodos')))
+        periodos_pesos_df = st.session_state.get('periodos_pesos_df', pd.DataFrame())
+        if not periodos_pesos_df.empty and st.session_state.get('ciclo') and st.session_state.get('periodos'):
+            max_minutos = get_circuit_total(periodos_pesos_df, st.session_state.get('ciclo'), st.session_state.get('periodos'))
+        else:
+            max_minutos = 0
+        fig_pista = build_pista_fig(df_final, max_minutos=max_minutos)
         img_bytes = fig_to_png_bytes(fig_pista)
         if img_bytes.getbuffer().nbytes:
             elements.append(RLImage(img_bytes, width=170*mm))
@@ -557,12 +565,15 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
         rows.append(row)
 
     total_largura = 180*mm
-    num_colunas = len(header)
-    col_widths = [total_largura/num_colunas] * num_colunas
+    # Defina larguras fixas para colunas de dados pequenos e flexíveis para as de texto
+    larguras_fixas = 16*mm # Largura para Rank, Minutos, Progresso (%)
+    largura_loja = 40*mm # Largura para o nome da loja
+    largura_etapa = (total_largura - 3*larguras_fixas - largura_loja) / max_etapas_na_tabela
     
-    if 'Loja' in header:
-        loja_idx = header.index('Loja')
-        col_widths[loja_idx] = 1.8 * (total_largura/num_colunas)
+    # Crie a lista de larguras de colunas
+    col_widths = [larguras_fixas, largura_loja, larguras_fixas, larguras_fixas]
+    for _ in range(max_etapas_na_tabela):
+        col_widths.append(largura_etapa)
         
     t2 = Table(rows, hAlign="LEFT", colWidths=col_widths)
     t2.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey), ("GRID",(0,0),(-1,-1),0.25,colors.black), ("FONTSIZE",(0,0),(-1,-1),8)]))
