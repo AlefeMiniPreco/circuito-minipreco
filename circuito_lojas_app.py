@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # circuito_lojas_app.py
-# Versão adaptada: integra diagnóstico de versões + geração de imagens redimensionadas (evita LayoutError)
+# Versão completa: carregamento robusto (SharePoint + cache), diagnóstico de versões,
+# geração de imagens Plotly -> PNG (kaleido) e criação segura de PDFs com ReportLab.
 
 import os
 from io import BytesIO
@@ -24,11 +25,11 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus.doctemplate import LayoutError as RLLayoutError
 
-# Módulos para conexão com o SharePoint
+# SharePoint client
 from office365.runtime.auth.user_credential import UserCredential
 from office365.sharepoint.client_context import ClientContext
 
-# importlib.metadata para pegar versões de pacotes (py3.8+)
+# importlib.metadata para pegar versões (py3.8+)
 try:
     from importlib import metadata
 except Exception:
@@ -36,36 +37,23 @@ except Exception:
 
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
-# ----------------- SharePoint Configuration and Data Loading -----------------
-# Ajuste se necessário
+# ----------------- Config / Constantes -----------------
+# Ajuste local (opcional) caso use arquivo local durante desenvolvimento
+DATA_FILE_PATH = os.environ.get("CIRCUITO_LOCAL_PATH", r"C:\Users\powerbi\MINIPRECO\Análise Comercial - .RelatóriosPBI\CircuitoMiniPreco\BaseCircuito.xlsx")
+
+# SharePoint settings (ajuste se necessário)
 SHAREPOINT_SITE_URL = "https://miniprecoltda.sharepoint.com/sites/AnliseComercial"
 SHAREPOINT_FILE_PATH = "Shared Documents/General/.RelatóriosPBI/CircuitoMiniPreco/BaseCircuito.xlsx"
 
-def get_data_from_sharepoint():
-    """Baixa o arquivo do SharePoint e retorna dict de DataFrames (sheet_name -> df)."""
-    try:
-        username = st.secrets["sharepoint_credentials"]["username"]
-        password = st.secrets["sharepoint_credentials"]["password"]
-        user_credentials = UserCredential(username, password)
-        ctx = ClientContext(SHAREPOINT_SITE_URL).with_credentials(user_credentials)
-        file = ctx.web.get_file_by_server_relative_url(SHAREPOINT_FILE_PATH)
-        file_buffer = BytesIO()
-        file.download(file_buffer).execute_query()
-        file_buffer.seek(0)
-        # retorna um dict de sheets
-        all_sheets = pd.read_excel(file_buffer, sheet_name=None, engine='openpyxl')
-        return all_sheets
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados do SharePoint: {e}")
-        st.warning("Verifique se as credenciais em Streamlit Secrets e a URL do SharePoint estão corretas.")
-        return {}
+# Cache local no container (persistirá enquanto o container estiver vivo)
+CACHE_FILE = "/tmp/base_circuito_cached.xlsx"
 
-# ----------------- Constants -----------------
 ETAPA_SHEETS = [
     "PlanoVoo", "ProjetoFast", "PontoPartida", "AcoesComerciais", "PainelVendas",
     "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
     "Qualidade", "Meta"
 ]
+
 PREMIO_TOP1 = "Bônus Ouro + Folga"
 PREMIO_TOP3 = "Bônus Prata"
 PREMIO_TOP5 = "Bônus Bronze"
@@ -149,11 +137,79 @@ def versions_dict_to_text(d: dict) -> str:
         pass
     return "\n".join(lines)
 
-# ---------------- Utils: image -> PNG bytes (kaleido) + scale to RL Image ----------------
+# ---------------- Cache helpers (local) ----------------
+def _load_cached_file():
+    """Tenta ler um Excel do cache local e retornar dict of DataFrames (sheet_name -> df)."""
+    try:
+        if os.path.exists(CACHE_FILE):
+            return pd.read_excel(CACHE_FILE, sheet_name=None, engine='openpyxl')
+        # fallback para arquivo local em DATA_FILE_PATH
+        if DATA_FILE_PATH and os.path.exists(DATA_FILE_PATH):
+            return pd.read_excel(DATA_FILE_PATH, sheet_name=None, engine='openpyxl')
+    except Exception as e:
+        print("LOG - falha ao ler cache local:", repr(e))
+    return {}
+
+def _write_cache_bytes(buf_bytes: bytes):
+    """Grava bytes do excel no CACHE_FILE (modo seguro)."""
+    try:
+        with open(CACHE_FILE, "wb") as f:
+            f.write(buf_bytes)
+        return True
+    except Exception as e:
+        print("LOG - falha ao gravar cache:", repr(e))
+        return False
+
+# ---------------- SharePoint loader + fallback para cache ----------------
+def get_data_from_sharepoint():
+    """
+    Tenta baixar do SharePoint usando st.secrets['sharepoint_credentials'].
+    Em caso de falha, tenta usar cache local (CACHE_FILE) e retorna dict de sheets.
+    Retorna {} em última instância.
+    """
+    has_secrets = ("sharepoint_credentials" in st.secrets and
+                   "username" in st.secrets["sharepoint_credentials"] and
+                   "password" in st.secrets["sharepoint_credentials"])
+    if not has_secrets:
+        st.warning("SharePoint credentials não encontradas nas Secrets do app. Tentando usar arquivo em cache/local.")
+        cached = _load_cached_file()
+        if cached:
+            st.info("Dados carregados do cache local (nenhuma credential setada).")
+            return cached
+        return {}
+
+    try:
+        username = st.secrets["sharepoint_credentials"]["username"]
+        password = st.secrets["sharepoint_credentials"]["password"]
+        user_credentials = UserCredential(username, password)
+        ctx = ClientContext(SHAREPOINT_SITE_URL).with_credentials(user_credentials)
+        file = ctx.web.get_file_by_server_relative_url(SHAREPOINT_FILE_PATH)
+        file_buffer = BytesIO()
+        file.download(file_buffer).execute_query()
+        file_buffer.seek(0)
+        # grava cache para próximas sessões
+        try:
+            _write_cache_bytes(file_buffer.getvalue())
+        except Exception:
+            pass
+        all_sheets = pd.read_excel(file_buffer, sheet_name=None, engine='openpyxl')
+        st.success("Dados carregados do SharePoint com sucesso.")
+        return all_sheets
+    except Exception as e:
+        err_short = f"{type(e).__name__}: {str(e)[:300]}"
+        st.warning("Falha ao baixar do SharePoint — tentando usar cache local. Erro: " + err_short)
+        print("LOG - erro get_data_from_sharepoint:", repr(e))
+        cached = _load_cached_file()
+        if cached:
+            st.info("Dados carregados do cache local após falha no download.")
+            return cached
+        return {}
+
+# ---------------- Utils: image -> PNG bytes (kaleido) e RLImage seguro ----------------
 def fig_to_png_bytes(fig: go.Figure, width: int | None = None, height: int | None = None) -> BytesIO:
     """
     Gera PNG via plotly.io.to_image (kaleido). width/height em pixels (opcional).
-    Retorna BytesIO com seek(0). Lança exceção se falhar (mensagem amigável via Streamlit).
+    Retorna BytesIO com seek(0).
     """
     try:
         params = {}
@@ -167,17 +223,16 @@ def fig_to_png_bytes(fig: go.Figure, width: int | None = None, height: int | Non
         return bio
     except Exception as exc:
         st.error(
-            "Falha ao gerar imagem do gráfico para o PDF. "
-            "Verifique se 'kaleido' e 'plotly' estão instalados corretamente.\n\n"
+            "Falha ao gerar imagem do gráfico para o PDF. Verifique se 'kaleido' e 'plotly' estão instalados corretamente.\n\n"
             "Tente: pip install -U kaleido plotly\n"
             "Confira os logs do deploy (Manage app -> Logs) se estiver no Streamlit Cloud."
         )
+        print("LOG - erro fig_to_png_bytes:", repr(exc))
         raise
 
 def make_rl_image_from_bytes(img_bytes: BytesIO, max_width_mm: float = 170.0, max_height_mm: float = 230.0) -> RLImage:
     """
     Cria um RL Image a partir de PNG bytes, escalando para caber em max_width_mm x max_height_mm.
-    Retorna um reportlab.platypus.Image (RLImage).
     """
     img_bytes.seek(0)
     try:
@@ -209,11 +264,12 @@ def _build_doc_buffer(elements) -> BytesIO:
         doc.build(elements)
     except RLLayoutError as le:
         st.error("Erro de layout ao gerar o PDF (LayoutError). Possível imagem/tabela muito grande. Veja logs para detalhes.")
+        print("LOG - LayoutError em _build_doc_buffer:", repr(le))
         raise
     buffer.seek(0)
     return buffer
 
-# ---------------- Data processing (adaptado do seu arquivo) ----------------
+# ---------------- Data processing (adaptado) ----------------
 @st.cache_data(show_spinner=False)
 def load_and_prepare_data(all_sheets: dict):
     all_data = []
@@ -242,7 +298,8 @@ def load_and_prepare_data(all_sheets: dict):
                         etapas_pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': r['Ciclo'], 'Periodo': r['Periodo'], 'PesoDaEtapa': float(r['PesoDaEtapa'])})
                     for _, r in df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index().iterrows():
                         periodos_pesos_records.append({'Ciclo': r['Ciclo'], 'Periodo': r['Periodo'], 'PesoDaEtapa': float(r['PesoDaEtapa'])})
-            except Exception:
+            except Exception as e:
+                print(f"LOG - falha processando sheet {sheet_name}: {repr(e)}")
                 continue
 
     if not all_data:
@@ -275,7 +332,7 @@ def load_and_prepare_data(all_sheets: dict):
 
     return combined_df, etapas_scores, etapas_info_total, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df
 
-# ---------- Cálculos ----------
+# ---------- Cálculos & agregações ----------
 @st.cache_data(show_spinner=False)
 def calculate_final_scores(df: pd.DataFrame, etapas: list, max_minutos_total: float):
     df = df.copy()
@@ -389,7 +446,130 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     fig.update_layout(height=250 + 70*num_lojas, margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
     return fig
 
-# ---------- Header & render pages (PDFs with robust image insertion) ----------
+# ---------- SharePoint + cache orchestration (entry points) ----------
+@st.cache_resource
+def load_data_and_warm_cache():
+    all_sheets = get_data_from_sharepoint()
+    if not all_sheets:
+        print("LOG - load_data_and_warm_cache: nenhum sheet carregado (get_data_from_sharepoint retornou vazio).")
+        return False
+
+    try:
+        data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
+        st.session_state.data_original = data
+        st.session_state.etapas_scores = etapas_scores
+        st.session_state.etapas_info = etapas_info
+        st.session_state.periodos_df = periodos_df
+        st.session_state.periodos_formatados = periodos_formatados
+        st.session_state.periodos_pesos_df = periodos_pesos_df
+        st.session_state.etapas_pesos_df = etapas_pesos_df
+        try:
+            _ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
+        except Exception as e:
+            print("LOG - warm_cache_all_periods falhou:", repr(e))
+        return True
+    except Exception as e:
+        print("LOG - load_and_warm_cache: falha ao preparar dados:", repr(e))
+        return False
+
+# ----------------- Sidebar (seleção + diagnóstico) -----------------
+if 'page' not in st.session_state: st.session_state.page = "Geral"
+if 'ciclo' not in st.session_state: st.session_state.ciclo = None
+if 'periodos' not in st.session_state: st.session_state.periodos = []
+if 'data_original' not in st.session_state: st.session_state.data_original = pd.DataFrame()
+if 'etapas_scores' not in st.session_state: st.session_state.etapas_scores = []
+if 'etapas_info' not in st.session_state: st.session_state.etapas_info = {}
+if 'periodos_df' not in st.session_state: st.session_state.periodos_df = pd.DataFrame()
+if 'periodos_formatados' not in st.session_state: st.session_state.periodos_formatados = []
+if 'df_final' not in st.session_state: st.session_state.df_final = pd.DataFrame()
+if 'etapa_selected' not in st.session_state: st.session_state.etapa_selected = None
+if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
+if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
+if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
+
+with st.sidebar:
+    st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
+    st.markdown("---")
+    st.markdown("### Seleção de Ciclo e Período")
+    # exibe ciclos (podem estar vazios até carregarmos os dados)
+    periodos_df_preview = st.session_state.get('periodos_df', pd.DataFrame())
+    ciclos_unicos = periodos_df_preview["Ciclo"].dropna().unique().tolist() if not periodos_df_preview.empty else []
+    if ciclos_unicos:
+        ciclo_selecionado = st.selectbox("Selecione o Ciclo", ciclos_unicos, index=len(ciclos_unicos)-1)
+        periodos_ciclo = periodos_df_preview.query("Ciclo == @ciclo_selecionado")["Periodo"].dropna().unique().tolist()
+        periodos_opcoes = ["Todos"] + list(periodos_ciclo)
+        periodos_selecionados = st.multiselect("Selecione os Períodos", options=periodos_opcoes, default=["Todos"])
+        st.session_state.ciclo = ciclo_selecionado
+        st.session_state.periodos = periodos_selecionados
+    else:
+        st.info("Nenhum ciclo disponível nos dados (ainda). Aguarde o carregamento ou verifique o painel de diagnóstico na lateral.")
+
+    st.markdown("---")
+    st.markdown("### Navegação")
+    if st.button("Visão Geral", use_container_width=True): st.session_state.page = "Geral"
+    if st.button("Visão por Loja", use_container_width=True): st.session_state.page = "Loja"
+    if st.button("Visão por Etapa", use_container_width=True): st.session_state.page = "Etapa"
+
+    st.markdown("---")
+    with st.expander("Versões das dependências (diagnóstico)"):
+        ver = build_versions_report(DEFAULT_PACKAGES_TO_CHECK)
+        txt = versions_dict_to_text(ver)
+        st.write("Versões detectadas (instância atual):")
+        st.code("\n".join([f"{k}: {v}" for k, v in ver.items()]), language="text")
+        b = BytesIO(txt.encode("utf-8"))
+        st.download_button("📄 Baixar relatório de versões", data=b.getvalue(), file_name="versoes_dependencias.txt", mime="text/plain")
+        st.markdown("---")
+        st.write("Diagnóstico extra:")
+        st.write("SharePoint secrets presentes:", "sharepoint_credentials" in st.secrets)
+        if os.path.exists(CACHE_FILE):
+            st.write("Cache existe em:", CACHE_FILE)
+            try:
+                st.write("Cache modificado em:", datetime.fromtimestamp(os.path.getmtime(CACHE_FILE)).isoformat())
+            except Exception:
+                pass
+        else:
+            st.write("Cache não encontrado.")
+
+# ---------------- Load data (or stop) ----------------
+loaded_ok = False
+try:
+    loaded_ok = load_data_and_warm_cache()
+except Exception as e:
+    print("LOG - exceção load_data_and_warm_cache:", repr(e))
+    loaded_ok = False
+
+if not loaded_ok:
+    st.error("Não foi possível carregar os dados. Verifique o painel lateral (versões e diagnóstico) e os logs do deploy.")
+    st.stop()
+
+# ---------- Validação / cálculo ----------
+if st.session_state.ciclo and st.session_state.periodos is not None:
+    df_to_render = filter_and_score_multi(
+        st.session_state.data_original,
+        st.session_state.etapas_scores,
+        st.session_state.periodos_pesos_df,
+        st.session_state.etapas_pesos_df,
+        st.session_state.ciclo,
+        st.session_state.periodos
+    )
+    st.session_state.df_final = pd.DataFrame() if (df_to_render is None or df_to_render.empty) else df_to_render
+else:
+    st.session_state.df_final = pd.DataFrame()
+
+# ---------- Header & pages ----------
+def render_header_and_periodo(campaign_name: str, periodo_inicio: str | None, periodo_fim: str | None):
+    st.markdown("<div class='app-header'>", unsafe_allow_html=True)
+    st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
+    if periodo_inicio and periodo_fim:
+        if periodo_inicio == periodo_fim:
+            st.markdown(f"<p>{periodo_inicio} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<p>{periodo_inicio} → {periodo_fim} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p>Período não definido — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("---")
+
 def get_period_range(ciclo: str, selected_periods: list, periodos_df: pd.DataFrame):
     if not ciclo or periodos_df is None or periodos_df.empty:
         return None, None
@@ -583,110 +763,8 @@ def gerar_pdf_pagina_etapa(etapa_name: str | None = None, include_plots: bool = 
     elements.append(t)
     return _build_doc_buffer(elements)
 
-# ---------- Inicializações de sessão ----------
-if 'page' not in st.session_state: st.session_state.page = "Geral"
-if 'ciclo' not in st.session_state: st.session_state.ciclo = None
-if 'periodos' not in st.session_state: st.session_state.periodos = []
-if 'data_original' not in st.session_state: st.session_state.data_original = pd.DataFrame()
-if 'etapas_scores' not in st.session_state: st.session_state.etapas_scores = []
-if 'etapas_info' not in st.session_state: st.session_state.etapas_info = {}
-if 'periodos_df' not in st.session_state: st.session_state.periodos_df = pd.DataFrame()
-if 'periodos_formatados' not in st.session_state: st.session_state.periodos_formatados = []
-if 'df_final' not in st.session_state: st.session_state.df_final = pd.DataFrame()
-if 'etapa_selected' not in st.session_state: st.session_state.etapa_selected = None
-if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
-if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
-if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
-
-@st.cache_resource
-def load_data_and_warm_cache():
-    all_sheets = get_data_from_sharepoint()
-    if not all_sheets:
-        return False
-    data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
-    st.session_state.data_original = data
-    st.session_state.etapas_scores = etapas_scores
-    st.session_state.etapas_info = etapas_info
-    st.session_state.periodos_df = periodos_df
-    st.session_state.periodos_formatados = periodos_formatados
-    st.session_state.periodos_pesos_df = periodos_pesos_df
-    st.session_state.etapas_pesos_df = etapas_pesos_df
-    _ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
-    return True
-
-# ---------- Sidebar (inclui painel de versões) ----------
-with st.sidebar:
-    st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
-    st.markdown("---")
-    st.markdown("### Seleção de Ciclo e Período")
-    periodos_df = st.session_state.get('periodos_df', pd.DataFrame())
-    ciclos_unicos = periodos_df["Ciclo"].dropna().unique().tolist() if not periodos_df.empty else []
-    if not ciclos_unicos:
-        st.error("Nenhum ciclo disponível nos dados.")
-    else:
-        ciclo_selecionado = st.selectbox("Selecione o Ciclo", ciclos_unicos, index=len(ciclos_unicos)-1)
-        periodos_ciclo = periodos_df.query("Ciclo == @ciclo_selecionado")["Periodo"].dropna().unique().tolist()
-        periodos_opcoes = ["Todos"] + list(periodos_ciclo)
-        periodos_selecionados = st.multiselect("Selecione os Períodos", options=periodos_opcoes, default=["Todos"])
-        st.session_state.ciclo = ciclo_selecionado
-        st.session_state.periodos = periodos_selecionados
-    st.markdown("---")
-    st.markdown("### Navegação")
-    if st.button("Visão Geral", use_container_width=True): st.session_state.page = "Geral"
-    if st.button("Visão por Loja", use_container_width=True): st.session_state.page = "Loja"
-    if st.button("Visão por Etapa", use_container_width=True): st.session_state.page = "Etapa"
-    st.markdown("---")
-    with st.expander("Versões das dependências (diagnóstico)"):
-        st.write("Clique em 'Atualizar' para reavaliar as versões detectadas na instância.")
-        if st.button("Atualizar versões", key="btn_refresh_versions"):
-            ver = build_versions_report(DEFAULT_PACKAGES_TO_CHECK)
-            txt = versions_dict_to_text(ver)
-            st.code("\n".join([f"{k}: {v}" for k, v in ver.items()]), language="text")
-            b = BytesIO(txt.encode("utf-8"))
-            st.download_button("📄 Baixar relatório de versões", data=b.getvalue(), file_name="versoes_dependencias.txt", mime="text/plain")
-            print("VERSÕES (atualizadas):", ver)
-        else:
-            ver = build_versions_report(DEFAULT_PACKAGES_TO_CHECK)
-            txt = versions_dict_to_text(ver)
-            st.write("Versões detectadas (instância atual):")
-            st.code("\n".join([f"{k}: {v}" for k, v in ver.items()]), language="text")
-            b = BytesIO(txt.encode("utf-8"))
-            st.download_button("📄 Baixar relatório de versões", data=b.getvalue(), file_name="versoes_dependencias.txt", mime="text/plain")
-
-# ---------- Load data ----------
-if not load_data_and_warm_cache():
-    st.error("Não foi possível carregar os dados. Verifique a conexão com o SharePoint e as credenciais.")
-    st.stop()
-
-# ---------- Validação / cálculo ----------
-if st.session_state.ciclo and st.session_state.periodos is not None:
-    df_to_render = filter_and_score_multi(
-        st.session_state.data_original,
-        st.session_state.etapas_scores,
-        st.session_state.periodos_pesos_df,
-        st.session_state.etapas_pesos_df,
-        st.session_state.ciclo,
-        st.session_state.periodos
-    )
-    st.session_state.df_final = pd.DataFrame() if (df_to_render is None or df_to_render.empty) else df_to_render
-else:
-    st.session_state.df_final = pd.DataFrame()
-
-# ---------- Header & main render ----------
+# ---------- Render main ----------
 periodo_inicio, periodo_fim = get_period_range(st.session_state.get('ciclo'), st.session_state.get('periodos', []), st.session_state.get('periodos_df', pd.DataFrame()))
-def render_header_and_periodo(campaign_name: str, periodo_inicio: str | None, periodo_fim: str | None):
-    st.markdown("<div class='app-header'>", unsafe_allow_html=True)
-    st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
-    if periodo_inicio and periodo_fim:
-        if periodo_inicio == periodo_fim:
-            st.markdown(f"<p>{periodo_inicio} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<p>{periodo_inicio} → {periodo_fim} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
-    else:
-        st.markdown("<p>Período não definido — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("---")
-
 render_header_and_periodo("Circuito MiniPreço", periodo_inicio, periodo_fim)
 
 def render_geral_page():
@@ -756,7 +834,6 @@ def render_etapa_page():
     buf_etapa = gerar_pdf_pagina_etapa(etapa_name=etapa_sel)
     st.download_button(f"📥 Baixar PDF — Visão por Etapa ({etapa_sel})", data=buf_etapa.getvalue(), file_name=f"Visao_Etapa_{etapa_sel}.pdf", mime="application/pdf")
 
-# ---------- choose page ----------
 if st.session_state.page == "Geral":
     render_geral_page()
 elif st.session_state.page == "Loja":
