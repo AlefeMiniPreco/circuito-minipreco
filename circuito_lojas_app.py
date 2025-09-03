@@ -450,7 +450,25 @@ def render_geral_page():
     st.plotly_chart(fig_pista, use_container_width=True)
 
     st.markdown("### Classificação Completa")
-    st.dataframe(df_final[['Rank', 'Nome_Exibicao', 'Pontos_Totais', 'Progresso']], use_container_width=True, hide_index=True)
+    df_classificacao = df_final.copy()
+    etapa_columns = [col for col in df_classificacao.columns if col.endswith('_Score')]
+    
+    # Renomear colunas de pontuação para o nome da etapa e adicionar ' min'
+    rename_dict = {col: f"{col.replace('_Score', '')} (min)" for col in etapa_columns}
+    df_classificacao.rename(columns=rename_dict, inplace=True)
+    
+    # Selecionar e reordenar as colunas
+    final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso']
+    df_display = df_classificacao[final_columns].copy()
+    
+    # Formatar as colunas de minutos
+    for col in list(rename_dict.values()):
+        df_display[col] = df_display[col].apply(lambda x: f"{x:.1f} min")
+        
+    df_display['Pontos_Totais'] = df_display['Pontos_Totais'].apply(lambda x: f"{x:.1f} min")
+    df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
+
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
 
     # st.download_button("📥 Baixar Relatório Completo", data=buf_relatorio.getvalue(), file_name="Relatorio_Circuito_Geral.pdf", mime="application/pdf")
 
