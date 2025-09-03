@@ -421,7 +421,6 @@ def render_header_and_periodo(campaign_name: str, periodo_inicio: str | None, pe
             st.markdown(f"<p>{periodo_inicio} → {periodo_fim} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
     else:
         st.markdown("<p>Período não definido — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("---")
 
 def render_geral_page():
@@ -510,12 +509,15 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
     styles = getSampleStyleSheet()
     title = styles["Title"]; h2 = styles["Heading2"]; normal = styles["Normal"]
     elements = []
-    
-    # ... (código de cabeçalho do PDF mantido) ...
-
-    # --- Seção do pódio (mantida) ---
-    elements.append(Paragraph("Pódio — Lojas que cruzaram a linha de chegada", h2))
+    elements.append(Paragraph("Circuito MiniPreço — Visão Geral", title))
+    elements.append(Spacer(1, 6))
+    ciclo = st.session_state.get("ciclo", "Não definido"); periodos = st.session_state.get("periodos", [])
+    elements.append(Paragraph(f"Ciclo: <b>{ciclo}</b>", normal))
+    elements.append(Paragraph(f"Períodos: <b>{', '.join(periodos) if periodos else 'Não definido'}</b>", normal))
+    elements.append(Paragraph(f"Gerado em: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ParagraphStyle("small", parent=normal, fontSize=8)))
+    elements.append(Spacer(1, 8))
     df_final = st.session_state.get("df_final", pd.DataFrame())
+    elements.append(Paragraph("Pódio — Lojas que cruzaram a linha de chegada", h2))
     if df_final is None or df_final.empty:
         elements.append(Paragraph("Nenhum dado disponível.", normal))
         return _build_doc_buffer(elements)
@@ -532,8 +534,6 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
         t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.grey), ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke), ("GRID",(0,0),(-1,-1),0.25,colors.black)]))
         elements.append(t)
     elements.append(Spacer(1, 8))
-    
-    # --- Seção do gráfico e classificação detalhada (mantida, mas com a correção) ---
     if include_plots:
         elements.append(Paragraph("Pista — Progresso das Lojas", h2))
         fig_pista = build_pista_fig(df_final, max_minutos=get_circuit_total(st.session_state.get('periodos_pesos_df', pd.DataFrame()), st.session_state.get('ciclo'), st.session_state.get('periodos')))
@@ -541,12 +541,10 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
         if img_bytes.getbuffer().nbytes:
             elements.append(RLImage(img_bytes, width=170*mm))
         elements.append(Spacer(1, 8))
-        
     elements.append(Paragraph("Classificação Detalhada (Top 50 exibidas)", styles["Heading3"]))
-    
-    # Adicione esta linha para limitar o número de etapas na tabela do PDF
+
+    # *** INÍCIO DA CORREÇÃO DE LAYOUT DO PDF ***
     max_etapas_na_tabela = 5 
-    
     etapa_cols = [c for c in df_final.columns if c.endswith('_Score')][:max_etapas_na_tabela]
     
     header = ["Rank", "Loja", "Minutos", "Progresso (%)"] + [c.replace("_Score","") for c in etapa_cols]
@@ -557,10 +555,20 @@ def gerar_pdf_pagina_geral(include_plots: bool = True) -> BytesIO:
         for c in etapa_cols:
             row.append(f"{r.get(c,0.0):.1f}")
         rows.append(row)
-    t2 = Table(rows, hAlign="LEFT")
+
+    total_largura = 180*mm
+    num_colunas = len(header)
+    col_widths = [total_largura/num_colunas] * num_colunas
+    
+    if 'Loja' in header:
+        loja_idx = header.index('Loja')
+        col_widths[loja_idx] = 1.8 * (total_largura/num_colunas)
+        
+    t2 = Table(rows, hAlign="LEFT", colWidths=col_widths)
     t2.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey), ("GRID",(0,0),(-1,-1),0.25,colors.black), ("FONTSIZE",(0,0),(-1,-1),8)]))
     elements.append(t2)
-    
+    # *** FIM DA CORREÇÃO ***
+
     return _build_doc_buffer(elements)
 
 def gerar_pdf_pagina_loja(loja_name: str | None = None, include_plots: bool = True) -> BytesIO:
@@ -637,7 +645,6 @@ if 'etapa_selected' not in st.session_state: st.session_state.etapa_selected = N
 if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
 if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
 if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
-
 
 # Tenta carregar os dados
 all_sheets = get_data_from_sharepoint()
