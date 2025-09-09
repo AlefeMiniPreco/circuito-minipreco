@@ -13,49 +13,33 @@ import time
 
 # reportlab para PDFs
 # Módulos para conexão com o SharePoint
-from office365.runtime.auth.user_credential import UserCredential
 from office365.sharepoint.client_context import ClientContext
+from office365.runtime.auth.client_credential import ClientCredential
 
-# Define a configuração inicial da página no Streamlit
-st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
+# Constantes do Azure AD
+TENANT_ID = st.secrets["azure_ad"]["tenant_id"]
+CLIENT_ID = st.secrets["azure_ad"]["client_id"]
+CLIENT_SECRET = st.secrets["azure_ad"]["client_secret"]
 
-# ----------------- Configuração do SharePoint e Carregamento de Dados -----------------
-# Define a URL do site do SharePoint e o caminho do arquivo de dados.
 SHAREPOINT_SITE_URL = "https://miniprecoltda.sharepoint.com/sites/AnliseComercial"
 SHAREPOINT_FILE_PATH = "Shared Documents/General/.RelatóriosPBI/CircuitoMiniPreco/BaseCircuito.xlsx"
 
-# Função para baixar o arquivo do SharePoint.
 def get_data_from_sharepoint():
-    """Baixa o arquivo do SharePoint e retorna como um DataFrame do pandas."""
     try:
-        # Pega as credenciais de forma segura do Streamlit Secrets
-        username = st.secrets["sharepoint_credentials"]["username"]
-        password = st.secrets["sharepoint_credentials"]["password"]
+        credentials = ClientCredential(CLIENT_ID, CLIENT_SECRET)
+        ctx = ClientContext(SHAREPOINT_SITE_URL).with_credentials(credentials)
 
-        # Tenta a conexão com as credenciais
-        user_credentials = UserCredential(username, password)
-        ctx = ClientContext(SHAREPOINT_SITE_URL).with_credentials(user_credentials)
-        
-        # Obtém a referência ao arquivo
         file = ctx.web.get_file_by_server_relative_url(SHAREPOINT_FILE_PATH)
-        
-        # Cria um objeto BytesIO para armazenar o conteúdo do arquivo
         file_buffer = BytesIO()
-
-        # Baixa o conteúdo do arquivo diretamente para o buffer
         file.download(file_buffer).execute_query()
-        
-        # Move o cursor para o início do buffer para que o pandas possa ler
         file_buffer.seek(0)
-        
-        # Lê o arquivo diretamente para o pandas a partir do buffer
-        df = pd.read_excel(file_buffer, sheet_name=None, engine='openpyxl')
-        return df
 
+        df = pd.read_excel(file_buffer, sheet_name=None, engine="openpyxl")
+        return df
     except Exception as e:
-        st.error(f"Erro ao carregar os dados do SharePoint: {e}")
-        st.warning("Verifique se as credenciais no Streamlit Secrets e a URL do SharePoint estão corretas.")
+        st.error(f"Erro ao carregar os dados: {e}")
         return {}
+
 
 # ----------------- Constantes do arquivo -----------------
 # Lista de nomes das planilhas que representam as etapas do circuito.
