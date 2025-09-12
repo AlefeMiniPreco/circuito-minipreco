@@ -334,7 +334,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
 
     # --- LINK CORRIGIDO PARA O FORMATO "RAW" ---
     # Este é o link direto para o arquivo de imagem, que o Plotly consegue carregar.
-    CAR_ICON_URL = "https://raw.github.com/AlefeMiniPreco/circuito-minipreco/blob/2e0c6c7e20e372e8a0c4a92a535acf6794f7c963/assets/carro-corrida_anim.webp"
+    CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/blob/2e0c6c7e20e372e8a0c4a92a535acf6794f7c963/assets/carro-corrida_anim.webp"
 
     fig = go.Figure()
     num_lojas = len(data)
