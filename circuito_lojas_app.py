@@ -347,7 +347,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
 
     # --- IMPORTANTE: COLE AQUI A URL "RAW" DO SEU GIF ---
     # Substitua 'SeuUsuario' e 'seu-repositorio' pelos dados corretos do seu GitHub.
-    CAR_ICON_URL = "assets/carro-corrida.gif"
+    CAR_ICON_URL = "https://github.com/AlefeMiniPreco/circuito-minipreco/blob/d8245618df322d01a5b8f1614c973290a90cf281/assets/carro-corrida.gif"
 
     fig = go.Figure()
     num_lojas = len(data)
