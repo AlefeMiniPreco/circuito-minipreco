@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão com novas regras de cálculo
+# circuito_lojas_app.py — versão com novas regras de cálculo e ícone animado
 
 import numpy as np
 import pandas as pd
@@ -339,11 +339,16 @@ def warm_cache_all_periods(data_original: pd.DataFrame, etapas: list, periodos_p
     return count
 
 # ----------------------------------------------------------------------
-# Visual: pista
+# Visual: pista (COM ÍCONE ANIMADO)
 # ----------------------------------------------------------------------
 def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     if data is None or data.empty:
         return go.Figure()
+
+    # --- IMPORTANTE: COLE AQUI A URL "RAW" DO SEU GIF ---
+    # Substitua 'SeuUsuario' e 'seu-repositorio' pelos dados corretos do seu GitHub.
+    CAR_ICON_URL = "https://github.com/AlefeMiniPreco/circuito-minipreco/blob/692666deadc68d3338c03a8e1e17426245a7a72e/assets/carro-corrida.gif"
+
     fig = go.Figure()
     num_lojas = len(data)
     y_positions = np.arange(num_lojas)
@@ -372,24 +377,47 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
             fig.add_shape(type="rect", x0=max_vis-0.5, y0=y-1, x1=max_vis+0.5, y1=y,
                           line=dict(width=0), fillcolor="white", layer="below")
 
-    # Carros e rótulos
+    # LÓGICA PARA INSERIR ÍCONE ANIMADO E RÓTULOS
     for y, row in zip(y_positions, data.itertuples()):
         x_carro = escala_visual(row.Pontos_Totais)
-        cruzou_linha = row.Pontos_Totais >= max_minutos
-        car_text = "🏁🚗" if cruzou_linha else "🚗"
-        text_size = 35 if cruzou_linha else 30
-        text_color = "gold" if cruzou_linha else None
+        
+        # Adiciona a imagem animada do carro na posição correta
+        fig.add_layout_image(
+            dict(
+                source=CAR_ICON_URL,
+                xref="x",
+                yref="y",
+                x=x_carro,
+                y=y,
+                sizex=max_vis * 0.08,  # Ajuste o tamanho do carro conforme necessário
+                sizey=0.8,             # Ajuste o tamanho do carro conforme necessário
+                xanchor="center",
+                yanchor="middle",
+                layer="above"
+            )
+        )
 
-        hover = f"<b>{row.Nome_Exibicao}</b><br>Minutos: {row.Pontos_Totais:.1f}<br>Progresso: {row.Progresso:.1f}%<br>Rank: #{int(row.Rank)}"
-
+        # Adiciona o rótulo com o nome da loja
         fig.add_trace(go.Scatter(
-            x=[x_carro], y=[y], mode="text", text=[car_text],
-            textfont=dict(size=text_size, color=text_color),
-            hoverinfo="text", hovertext=hover, showlegend=False
+            x=[x_carro], 
+            y=[y-0.5], 
+            mode="text", 
+            text=[row.Nome_Exibicao],
+            textfont=dict(size=9, color="rgba(255,255,255,0.9)"), 
+            hoverinfo="skip", 
+            showlegend=False
         ))
+        
+        # Adiciona um ponto invisível para criar o hovertext (caixa de informações)
+        hover = f"<b>{row.Nome_Exibicao}</b><br>Minutos: {row.Pontos_Totais:.1f}<br>Progresso: {row.Progresso:.1f}%<br>Rank: #{int(row.Rank)}"
         fig.add_trace(go.Scatter(
-            x=[x_carro], y=[y-0.5], mode="text", text=[row.Nome_Exibicao],
-            textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False
+            x=[x_carro],
+            y=[y],
+            mode='markers',
+            marker=dict(color='rgba(0,0,0,0)', size=25), # Marcador invisível
+            hoverinfo='text',
+            hovertext=hover,
+            showlegend=False
         ))
 
     fig.update_yaxes(showgrid=False, zeroline=False, tickmode="array", tickvals=y_positions, ticktext=[])
@@ -399,6 +427,7 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
         plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)"
     )
     return fig
+
 
 # ----------------------------------------------------------------------
 # Lógica Principal do Aplicativo (renders)
