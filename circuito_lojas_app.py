@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão GitHub only (com cálculos e visuais completos)
+# circuito_lojas_app.py — versão com novas regras de cálculo
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,11 @@ ETAPA_SHEETS = [
     "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
     "Qualidade", "Meta"
 ]
+# Etapas com score mensal (baseado no ciclo)
+MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
+# Etapas "coringa" que não contam para o total de minutos do circuito
+JOKER_ETAPAS = ["Meta"]
+
 PREMIO_TOP1 = "Bônus Ouro + Folga"
 PREMIO_TOP3 = "Bônus Prata"
 PREMIO_TOP5 = "Bônus Bronze"
@@ -186,7 +191,8 @@ def load_and_prepare_data(all_sheets: dict):
                 df_etapa['Período'] = df_etapa['Período'].astype(str)
 
                 df_etapa = df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'})
-                df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                # Converte Nota para numérico, mantendo NaNs para notas nulas
+                df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce')
 
                 # Consolida os dados da etapa.
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
@@ -203,8 +209,10 @@ def load_and_prepare_data(all_sheets: dict):
                     for _, r in pesos_gp.iterrows():
                         etapas_pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
 
-                    for _, r in df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index().iterrows():
-                        periodos_pesos_records.append({'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
+                    # **NOVA REGRA**: Etapas "coringa" não contam para o total de minutos.
+                    if sheet_name not in JOKER_ETAPAS:
+                        for _, r in df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index().iterrows():
+                            periodos_pesos_records.append({'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
 
             except Exception:
                 continue
@@ -224,9 +232,14 @@ def load_and_prepare_data(all_sheets: dict):
     combined_df['Ciclo_Cat'] = pd.Categorical(combined_df['Ciclo'], categories=month_order, ordered=True)
     combined_df = combined_df.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao']).reset_index(drop=True)
 
+    # **NOVA REGRA**: Propaga scores de etapas mensais para todos os períodos do ciclo.
+    for etapa in MONTHLY_ETAPAS:
+        score_col = f"{etapa}_Score"
+        if score_col in combined_df.columns:
+            # Usa a nota máxima da loja no ciclo e aplica a todos os períodos.
+            combined_df[score_col] = combined_df.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
+
     etapas_scores = [c for c in combined_df.columns if c.endswith('_Score')]
-    if etapas_scores:
-        combined_df[etapas_scores] = combined_df[etapas_scores].fillna(0.0)
 
     # Prepara os DataFrames de pesos.
     periodos_df = combined_df[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
@@ -253,6 +266,7 @@ def calculate_final_scores(df: pd.DataFrame, etapas: list, max_minutos_total: fl
     for e in etapas:
         if e not in df.columns:
             df[e] = 0.0
+    # Na soma total, NaNs são tratados como 0, o que está correto para o cálculo.
     df["Pontos_Totais"] = df[etapas].sum(axis=1)
     max_p = max_minutos_total if max_minutos_total and max_minutos_total > 0 else (df["Pontos_Totais"].max() if not df.empty else 0)
     df["Progresso"] = (df["Pontos_Totais"] / max_p) * 100.0 if max_p > 0 else 0.0
@@ -305,7 +319,10 @@ def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_p
     if not score_cols:
         return pd.DataFrame()
     max_minutos = get_circuit_total(periodos_pesos_df, ciclo, periodos)
-    aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum()
+    
+    # **NOVA REGRA**: Agrega com sum(min_count=1) para preservar NaNs se todas as notas de um grupo forem nulas
+    aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum(min_count=1)
+    
     aggregated['Ciclo'] = ciclo
     final = calculate_final_scores(aggregated, score_cols, max_minutos)
     return final
@@ -331,8 +348,8 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     num_lojas = len(data)
     y_positions = np.arange(num_lojas)
 
-    if max_minutos is None:
-        max_minutos = data["Pontos_Totais"].max()
+    if max_minutos is None or max_minutos == 0:
+        max_minutos = data["Pontos_Totais"].max() if not data.empty else 100
 
     def escala_visual(x):
         return np.sqrt(x)
@@ -432,8 +449,9 @@ def render_geral_page():
     final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso']
     df_display = df_classificacao[final_columns].copy()
 
+    # **NOVA REGRA**: Formata as colunas de score para exibir mensagem para notas nulas
     for col in list(rename_dict.values()):
-        df_display[col] = df_display[col].apply(lambda x: f"{x:.1f} min")
+        df_display[col] = df_display[col].apply(lambda x: f"{x:.1f} min" if pd.notna(x) else "Ainda sem nota imputada")
 
     df_display['Pontos_Totais'] = df_display['Pontos_Totais'].apply(lambda x: f"{x:.1f} min")
     df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
@@ -460,7 +478,13 @@ def render_loja_page():
     st.markdown("### Pontuação por Etapa")
     etapa_scores_df = loja_row.filter(regex='_Score').to_frame().T
     etapa_scores_df.columns = [c.replace('_Score','') for c in etapa_scores_df.columns]
-    st.dataframe(etapa_scores_df, use_container_width=True, hide_index=True)
+    
+    # **NOVA REGRA**: Formata para exibir mensagem para notas nulas também na visão por loja
+    etapa_scores_df_display = etapa_scores_df.copy()
+    for col in etapa_scores_df_display.columns:
+        etapa_scores_df_display[col] = etapa_scores_df_display[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "Ainda sem nota imputada")
+    
+    st.dataframe(etapa_scores_df_display, use_container_width=True, hide_index=True)
 
 def render_etapa_page():
     st.header("Visão por Etapa")
@@ -480,6 +504,9 @@ def render_etapa_page():
         return
 
     df_etapa = df_final[['Nome_Exibicao', col_name]].copy().rename(columns={col_name:"Pontuação"}).sort_values("Pontuação", ascending=False)
+    # Remove lojas sem pontuação (NaN) da visão de top 10
+    df_etapa.dropna(subset=['Pontuação'], inplace=True)
+    
     top10 = df_etapa.head(10)
     st.subheader(f"Top 10 da Etapa '{etapa_sel}'")
     st.dataframe(top10, use_container_width=True, hide_index=True)
