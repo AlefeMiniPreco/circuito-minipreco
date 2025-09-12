@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão com novas regras de cálculo e ícone animado (CORRIGIDO)
+# circuito_lojas_app.py — versão com novas regras de cálculo, ícone animado e "minutos faltantes" (CORRIGIDO)
 
 import numpy as np
 import pandas as pd
@@ -363,7 +363,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     for i, y_start in enumerate(y_steps):
         for j in range(num_cols):
             x_start = max_vis
-            
             color = "white" if (i + j) % 2 == 0 else "black"
             
             fig.add_shape(
@@ -399,7 +398,13 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
             hoverinfo="skip", showlegend=False
         ))
         
-        hover = f"<b>{row.Nome_Exibicao}</b><br>Minutos: {row.Pontos_Totais:.1f}<br>Progresso: {row.Progresso:.1f}%<br>Rank: #{int(row.Rank)}"
+        # --- ALTERAÇÃO AQUI: Adicionado "Minutos Faltantes" ao hover ---
+        minutos_faltantes = max(0, max_minutos - row.Pontos_Totais)
+        hover = (f"<b>{row.Nome_Exibicao}</b><br>"
+                 f"Minutos: {row.Pontos_Totais:.1f}<br>"
+                 f"Progresso: {row.Progresso:.1f}%<br>"
+                 f"Faltam: {minutos_faltantes:.1f} min<br>"
+                 f"Rank: #{int(row.Rank)}")
         fig.add_trace(go.Scatter(
             x=[x_carro], y=[y],
             mode='markers',
@@ -462,18 +467,23 @@ def render_geral_page():
     render_podio_table(df_final)
 
     st.markdown("### Pista de Corrida do Circuito")
-    max_minutos = get_circuit_total(st.session_state.periodos_pesos_df, st.session_state.ciclo, st.session_state.periodos)
+    max_minutos = st.session_state.get('max_minutos_circuito', 0.0)
     fig_pista = build_pista_fig(df_final, max_minutos=max_minutos)
     st.plotly_chart(fig_pista, use_container_width=True)
 
     st.markdown("### Classificação Completa")
     df_classificacao = df_final.copy()
+    
+    # --- ALTERAÇÃO AQUI: Adiciona coluna de minutos faltantes ---
+    df_classificacao['Faltam (min)'] = (max_minutos - df_classificacao['Pontos_Totais']).clip(lower=0)
+    
     etapa_columns = [col for col in df_classificacao.columns if col.endswith('_Score')]
 
     rename_dict = {col: f"{col.replace('_Score', '')} (min)" for col in etapa_columns}
     df_classificacao.rename(columns=rename_dict, inplace=True)
-
-    final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso']
+    
+    # Adiciona a nova coluna na lista de colunas a serem exibidas
+    final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso', 'Faltam (min)']
     df_display = df_classificacao[final_columns].copy()
 
     for col in list(rename_dict.values()):
@@ -481,6 +491,8 @@ def render_geral_page():
 
     df_display['Pontos_Totais'] = df_display['Pontos_Totais'].apply(lambda x: f"{x:.1f} min")
     df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
+    # Formata a nova coluna
+    df_display['Faltam (min)'] = df_display['Faltam (min)'].apply(lambda x: f"{x:.1f} min")
 
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
@@ -497,10 +509,21 @@ def render_loja_page():
 
     loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
     st.markdown(f"**Loja Selecionada:** {loja_row['Nome_Exibicao']}")
-    st.metric("Pontos Totais", f"{loja_row['Pontos_Totais']:.1f} min")
-    st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
-    st.metric("Rank", f"#{int(loja_row['Rank'])}")
 
+    # --- ALTERAÇÃO AQUI: Adiciona métrica de minutos faltantes ---
+    max_minutos = st.session_state.get('max_minutos_circuito', 0.0)
+    minutos_faltantes = max(0, max_minutos - loja_row['Pontos_Totais'])
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Pontos Totais", f"{loja_row['Pontos_Totais']:.1f} min")
+    with col2:
+        st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
+    with col3:
+        st.metric("Rank", f"#{int(loja_row['Rank'])}")
+    with col4:
+        st.metric("Minutos Faltantes", f"{minutos_faltantes:.1f} min")
+    
     st.markdown("### Pontuação por Etapa")
     etapa_scores_df = loja_row.filter(regex='_Score').to_frame().T
     etapa_scores_df.columns = [c.replace('_Score','') for c in etapa_scores_df.columns]
@@ -553,6 +576,8 @@ if 'etapa_selected' not in st.session_state: st.session_state.etapa_selected = N
 if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
 if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
 if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
+# --- ADIÇÃO AQUI: Inicializa o total de minutos do circuito no estado da sessão ---
+if 'max_minutos_circuito' not in st.session_state: st.session_state.max_minutos_circuito = 0.0
 
 # ----------------------------------------------------------------------
 # Carregar dados (GitHub) e processar
@@ -613,8 +638,16 @@ if st.session_state.ciclo and st.session_state.periodos is not None:
         st.session_state.periodos
     )
     st.session_state.df_final = pd.DataFrame() if (df_to_render is None or df_to_render.empty) else df_to_render
+    
+    # --- ADIÇÃO AQUI: Calcula e armazena o total de minutos do circuito na sessão ---
+    st.session_state.max_minutos_circuito = get_circuit_total(
+        st.session_state.periodos_pesos_df,
+        st.session_state.ciclo,
+        st.session_state.periodos
+    )
 else:
     st.session_state.df_final = pd.DataFrame()
+    st.session_state.max_minutos_circuito = 0.0
 
 # ----------------------------------------------------------------------
 # Header & Render de páginas
