@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão com novas regras de cálculo, ícone animado e "minutos faltantes" (CORRIGIDO)
+# circuito_lojas_app.py — versão com cálculo de score = Nota * Peso (CORRIGIDO)
 
 import numpy as np
 import pandas as pd
@@ -189,7 +189,18 @@ def load_and_prepare_data(all_sheets: dict):
                 df_etapa['Período'] = df_etapa['Período'].astype(str)
 
                 df_etapa = df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'})
-                df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce')
+                
+                # --- ALTERAÇÃO PRINCIPAL AQUI ---
+                # O score (minutos) agora é o resultado da Nota multiplicada pelo PesoDaEtapa.
+                # Se a nota for 1 (100%) e o peso for 7, o resultado é 7 minutos.
+                # Se a nota for 0.5 (50%) e o peso for 7, o resultado é 3.5 minutos.
+                if 'PesoDaEtapa' in df_etapa.columns:
+                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    df_etapa['Score_Etapa'] = nota_num * peso_num
+                else:
+                    # Caso de fallback se a planilha não tiver a coluna de peso, a nota vira o score.
+                    df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
 
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
                 df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
@@ -332,8 +343,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     if data is None or data.empty:
         return go.Figure()
 
-    # --- NOVO LINK DO CARRO ---
-    # Utilizando a animação .webp que você especificou.
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/afdcbb50f1132d94c34ae85bb5dee657bef4eac2/assets/carro-corrida_anim.webp"
 
     fig = go.Figure()
@@ -348,15 +357,12 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
 
     max_vis = escala_visual(max_minutos)
 
-    # Pista (mantendo o fundo simples desenhado)
     for y in y_positions:
         fig.add_shape(type="rect", x0=0, y0=y-0.45, x1=max_vis, y1=y+0.45,
                       line=dict(width=0), fillcolor="#2C3E50", layer="below")
 
-    # --- MUDANÇA AQUI: NOVA LÓGICA DA BANDEIRA QUADRICULADA ---
-    # Substituindo a bandeira antiga por uma mais detalhada.
-    flag_width = max_vis * 0.04  # Largura da bandeira
-    num_cols = 4                  # 4 colunas de quadrados
+    flag_width = max_vis * 0.04
+    num_cols = 4
     square_size = flag_width / num_cols
     
     y_steps = np.arange(-0.5, num_lojas, square_size)
@@ -376,7 +382,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
                 layer="above"
             )
 
-    # LÓGICA PARA INSERIR ÍCONE ANIMADO E RÓTULOS
     for y, row in zip(y_positions, data.itertuples()):
         x_carro = escala_visual(row.Pontos_Totais)
         
@@ -398,7 +403,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
             hoverinfo="skip", showlegend=False
         ))
         
-        # --- ALTERAÇÃO AQUI: Adicionado "Minutos Faltantes" ao hover ---
         minutos_faltantes = max(0, max_minutos - row.Pontos_Totais)
         hover = (f"<b>{row.Nome_Exibicao}</b><br>"
                  f"Minutos: {row.Pontos_Totais:.1f}<br>"
@@ -413,16 +417,15 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
             showlegend=False
         ))
 
-    # --- MUDANÇA AQUI: GRÁFICO FIXO ---
     fig.update_xaxes(
         range=[0, max_vis * 1.05], 
         title_text="Minutos percorridos (escala visual compactada) →",
-        fixedrange=True  # Trava o zoom/arrasto no eixo X
+        fixedrange=True
     )
     fig.update_yaxes(
         showgrid=False, zeroline=False, 
         tickmode="array", tickvals=y_positions, ticktext=[],
-        fixedrange=True  # Trava o zoom/arrasto no eixo Y
+        fixedrange=True
     )
     
     fig.update_layout(
@@ -474,7 +477,6 @@ def render_geral_page():
     st.markdown("### Classificação Completa")
     df_classificacao = df_final.copy()
     
-    # --- ALTERAÇÃO AQUI: Adiciona coluna de minutos faltantes ---
     df_classificacao['Faltam (min)'] = (max_minutos - df_classificacao['Pontos_Totais']).clip(lower=0)
     
     etapa_columns = [col for col in df_classificacao.columns if col.endswith('_Score')]
@@ -482,7 +484,6 @@ def render_geral_page():
     rename_dict = {col: f"{col.replace('_Score', '')} (min)" for col in etapa_columns}
     df_classificacao.rename(columns=rename_dict, inplace=True)
     
-    # Adiciona a nova coluna na lista de colunas a serem exibidas
     final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso', 'Faltam (min)']
     df_display = df_classificacao[final_columns].copy()
 
@@ -491,7 +492,6 @@ def render_geral_page():
 
     df_display['Pontos_Totais'] = df_display['Pontos_Totais'].apply(lambda x: f"{x:.1f} min")
     df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
-    # Formata a nova coluna
     df_display['Faltam (min)'] = df_display['Faltam (min)'].apply(lambda x: f"{x:.1f} min")
 
     st.dataframe(df_display, use_container_width=True, hide_index=True)
@@ -510,7 +510,6 @@ def render_loja_page():
     loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
     st.markdown(f"**Loja Selecionada:** {loja_row['Nome_Exibicao']}")
 
-    # --- ALTERAÇÃO AQUI: Adiciona métrica de minutos faltantes ---
     max_minutos = st.session_state.get('max_minutos_circuito', 0.0)
     minutos_faltantes = max(0, max_minutos - loja_row['Pontos_Totais'])
 
@@ -576,7 +575,6 @@ if 'etapa_selected' not in st.session_state: st.session_state.etapa_selected = N
 if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
 if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
 if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
-# --- ADIÇÃO AQUI: Inicializa o total de minutos do circuito no estado da sessão ---
 if 'max_minutos_circuito' not in st.session_state: st.session_state.max_minutos_circuito = 0.0
 
 # ----------------------------------------------------------------------
@@ -639,7 +637,6 @@ if st.session_state.ciclo and st.session_state.periodos is not None:
     )
     st.session_state.df_final = pd.DataFrame() if (df_to_render is None or df_to_render.empty) else df_to_render
     
-    # --- ADIÇÃO AQUI: Calcula e armazena o total de minutos do circuito na sessão ---
     st.session_state.max_minutos_circuito = get_circuit_total(
         st.session_state.periodos_pesos_df,
         st.session_state.ciclo,
