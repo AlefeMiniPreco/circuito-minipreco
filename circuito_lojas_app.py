@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão com cálculo de score = Nota * Peso (CORRIGIDO)
+# circuito_lojas_app.py — versão com insights de melhoria e gráfico de radar (CORRIGIDO)
 
 import numpy as np
 import pandas as pd
@@ -190,16 +190,12 @@ def load_and_prepare_data(all_sheets: dict):
 
                 df_etapa = df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'})
                 
-                # --- ALTERAÇÃO PRINCIPAL AQUI ---
                 # O score (minutos) agora é o resultado da Nota multiplicada pelo PesoDaEtapa.
-                # Se a nota for 1 (100%) e o peso for 7, o resultado é 7 minutos.
-                # Se a nota for 0.5 (50%) e o peso for 7, o resultado é 3.5 minutos.
                 if 'PesoDaEtapa' in df_etapa.columns:
                     nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
                     peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
                     df_etapa['Score_Etapa'] = nota_num * peso_num
                 else:
-                    # Caso de fallback se a planilha não tiver a coluna de peso, a nota vira o score.
                     df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
 
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
@@ -523,15 +519,85 @@ def render_loja_page():
     with col4:
         st.metric("Minutos Faltantes", f"{minutos_faltantes:.1f} min")
     
-    st.markdown("### Pontuação por Etapa")
-    etapa_scores_df = loja_row.filter(regex='_Score').to_frame().T
-    etapa_scores_df.columns = [c.replace('_Score','') for c in etapa_scores_df.columns]
+    st.markdown("---")
+
+    # --- NOVA LÓGICA DE INSIGHTS E GRÁFICO DE RADAR ---
+    pesos_etapas = get_etapa_pesos_for_selection(st.session_state.etapas_pesos_df, st.session_state.ciclo, st.session_state.periodos)
     
-    etapa_scores_df_display = etapa_scores_df.copy()
-    for col in etapa_scores_df_display.columns:
-        etapa_scores_df_display[col] = etapa_scores_df_display[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "Ainda sem nota imputada")
-    
-    st.dataframe(etapa_scores_df_display, use_container_width=True, hide_index=True)
+    etapas_data = []
+    for etapa_col, peso in pesos_etapas.items():
+        if peso > 0:  # Apenas incluir etapas que têm peso no circuito
+            etapa_name = etapa_col.replace('_Score', '')
+            score_atual = loja_row.get(etapa_col, 0)
+            gap = peso - score_atual
+            etapas_data.append({
+                'Etapa': etapa_name,
+                'Pontuação Atual': score_atual,
+                'Pontuação Máxima': peso,
+                'Gap': gap
+            })
+
+    if not etapas_data:
+        st.info("Não há dados de etapas para exibir para a seleção atual.")
+        return
+        
+    df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap', ascending=False).reset_index(drop=True)
+
+    col_insight, col_chart = st.columns([1, 2])
+
+    with col_insight:
+        st.subheader("Pontos de Melhoria")
+        st.markdown("Principais oportunidades para ganhar minutos e avançar no circuito:")
+        
+        top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
+
+        if top_melhorias.empty:
+            st.success("🎉 Parabéns! A loja atingiu a pontuação máxima em todas as etapas!")
+        else:
+            for _, row in top_melhorias.iterrows():
+                st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{row['Gap']:.1f}** minutos.")
+
+    with col_chart:
+        st.subheader("Desempenho por Etapa")
+        fig = go.Figure()
+
+        # Trace da Pontuação Máxima (linha externa)
+        fig.add_trace(go.Scatterpolar(
+            r=df_melhoria['Pontuação Máxima'],
+            theta=df_melhoria['Etapa'],
+            mode='lines',
+            line=dict(color='rgba(255, 255, 255, 0.4)'),
+            name='Pontuação Máxima'
+        ))
+
+        # Trace da Pontuação Atual (área preenchida)
+        fig.add_trace(go.Scatterpolar(
+            r=df_melhoria['Pontuação Atual'],
+            theta=df_melhoria['Etapa'],
+            fill='toself',
+            fillcolor='rgba(0, 176, 246, 0.4)',
+            line=dict(color='rgba(0, 176, 246, 1)'),
+            name='Pontuação Atual'
+        ))
+
+        fig.update_layout(
+            polar=dict(
+                bgcolor="rgba(0,0,0,0)",
+                radialaxis=dict(visible=True, range=[0, df_melhoria['Pontuação Máxima'].max() * 1.1]),
+                angularaxis=dict(
+                    tickfont=dict(size=10),
+                    rotation=90,
+                    direction="clockwise"
+                )
+            ),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="white",
+            margin=dict(l=40, r=40, t=80, b=40)
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
     st.header("Visão por Etapa")
