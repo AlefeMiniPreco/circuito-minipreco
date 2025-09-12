@@ -332,97 +332,94 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     if data is None or data.empty:
         return go.Figure()
 
-    # --- NOVO LINK DO CARRO ---
-    # Utilizando a animação .webp que você especificou.
+    # --- Links para os seus assets no GitHub ---
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/afdcbb50f1132d94c34ae85bb5dee657bef4eac2/assets/carro-corrida_anim.webp"
+    TRACK_BACKGROUND_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/c6fc7e46a0fbd49349dae284b5065f2f6f5c6e66/assets/pista-corrida.png"
 
     fig = go.Figure()
     num_lojas = len(data)
     y_positions = np.arange(num_lojas)
 
-    if max_minutos is None or max_minutos == 0:
-        max_minutos = data["Pontos_Totais"].max() if not data.empty else 100
+    # Renomeando para clareza
+    max_minutos_circuito = max_minutos if max_minutos and max_minutos > 0 else (data["Pontos_Totais"].max() if not data.empty else 100)
 
     def escala_visual(x):
         return np.sqrt(max(x, 0))
 
-    max_vis = escala_visual(max_minutos)
-
-    # Pista (mantendo o fundo simples desenhado)
-    for y in y_positions:
-        fig.add_shape(type="rect", x0=0, y0=y-0.45, x1=max_vis, y1=y+0.45,
-                      line=dict(width=0), fillcolor="#2C3E50", layer="below")
-
-    # --- MUDANÇA AQUI: NOVA LÓGICA DA BANDEIRA QUADRICULADA ---
-    # Substituindo a bandeira antiga por uma mais detalhada.
-    flag_width = max_vis * 0.04  # Largura da bandeira
-    num_cols = 4                  # 4 colunas de quadrados
-    square_size = flag_width / num_cols
-    
-    y_steps = np.arange(-0.5, num_lojas, square_size)
-    for i, y_start in enumerate(y_steps):
-        for j in range(num_cols):
-            x_start = max_vis
-            
-            color = "white" if (i + j) % 2 == 0 else "black"
-            
-            fig.add_shape(
-                type="rect",
-                x0=x_start + (j * square_size),
-                y0=y_start,
-                x1=x_start + ((j+1) * square_size),
-                y1=y_start + square_size,
-                line=dict(width=0.5, color="black"),
-                fillcolor=color,
-                layer="above"
-            )
+    max_vis = escala_visual(max_minutos_circuito)
 
     # LÓGICA PARA INSERIR ÍCONE ANIMADO E RÓTULOS
     for y, row in zip(y_positions, data.itertuples()):
         x_carro = escala_visual(row.Pontos_Totais)
+        
+        # --- MUDANÇA AQUI: Cálculo dos minutos faltantes ---
+        minutos_faltantes = max(0, max_minutos_circuito - row.Pontos_Totais)
         
         fig.add_layout_image(
             dict(
                 source=CAR_ICON_URL,
                 xref="x", yref="y",
                 x=x_carro, y=y,
-                sizex=max_vis * 0.08, sizey=0.8,
+                sizex=max_vis * 0.1, sizey=0.9,
                 xanchor="center", yanchor="middle",
                 layer="above"
             )
         )
 
         fig.add_trace(go.Scatter(
-            x=[x_carro], y=[y-0.5],
-            mode="text", text=[row.Nome_Exibicao],
-            textfont=dict(size=9, color="rgba(255,255,255,0.9)"),
+            x=[x_carro + max_vis * 0.01], y=[y + 0.35],
+            mode="text", 
+            text=[row.Nome_Exibicao],
+            textfont=dict(size=10, color="white", family="Arial Black"),
             hoverinfo="skip", showlegend=False
         ))
         
-        hover = f"<b>{row.Nome_Exibicao}</b><br>Minutos: {row.Pontos_Totais:.1f}<br>Progresso: {row.Progresso:.1f}%<br>Rank: #{int(row.Rank)}"
+        # --- MUDANÇA AQUI: Adicionando "Faltam" ao texto do hover ---
+        hover = (f"<b>{row.Nome_Exibicao}</b><br>"
+                 f"Minutos: {row.Pontos_Totais:.1f}<br>"
+                 f"<b>Faltam: {minutos_faltantes:.1f} min</b><br>"
+                 f"Progresso: {row.Progresso:.1f}%<br>"
+                 f"Rank: #{int(row.Rank)}")
+                 
         fig.add_trace(go.Scatter(
             x=[x_carro], y=[y],
             mode='markers',
-            marker=dict(color='rgba(0,0,0,0)', size=25),
+            marker=dict(color='rgba(0,0,0,0)', size=30),
             hoverinfo='text', hovertext=hover,
             showlegend=False
         ))
 
-    # --- MUDANÇA AQUI: GRÁFICO FIXO ---
-    fig.update_xaxes(
-        range=[0, max_vis * 1.05], 
-        title_text="Minutos percorridos (escala visual compactada) →",
-        fixedrange=True  # Trava o zoom/arrasto no eixo X
-    )
-    fig.update_yaxes(
-        showgrid=False, zeroline=False, 
-        tickmode="array", tickvals=y_positions, ticktext=[],
-        fixedrange=True  # Trava o zoom/arrasto no eixo Y
-    )
-    
+    # Lógica da bandeira de chegada...
+    flag_width = max_vis * 0.04
+    num_cols = 4
+    square_size = flag_width / num_cols
+    y_steps = np.arange(-0.5, num_lojas, square_size)
+    for i, y_start in enumerate(y_steps):
+        for j in range(num_cols):
+            x_start = max_vis
+            color = "white" if (i + j) % 2 == 0 else "black"
+            fig.add_shape(
+                type="rect",
+                x0=x_start + (j * square_size), y0=y_start,
+                x1=x_start + ((j+1) * square_size), y1=y_start + square_size,
+                line=dict(width=0.5, color="black"), fillcolor=color, layer="above"
+            )
+
+    # ATUALIZAÇÃO DOS EIXOS E LAYOUT
+    fig.update_xaxes(range=[0, max_vis * 1.1], visible=False, fixedrange=True)
+    fig.update_yaxes(range=[-0.5, num_lojas - 0.5], visible=False, fixedrange=True)
     fig.update_layout(
-        height=250 + 70*num_lojas, margin=dict(l=10, r=10, t=80, b=40),
-        plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)"
+        height=150 + 80 * num_lojas,
+        margin=dict(l=10, r=10, t=80, b=40),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(26,42,58,0.7)",
+        images=[dict(
+            source=TRACK_BACKGROUND_URL,
+            xref="paper", yref="paper",
+            x=0, y=1, sizex=1, sizey=1,
+            xanchor="left", yanchor="top",
+            sizing="stretch", opacity=1.0, layer="below"
+        )]
     )
     return fig
 
@@ -511,29 +508,46 @@ def render_loja_page():
     
     st.dataframe(etapa_scores_df_display, use_container_width=True, hide_index=True)
 
-def render_etapa_page():
-    st.header("Visão por Etapa")
+def render_loja_page():
+    st.header("Visão por Loja")
     df_final = st.session_state.get('df_final')
     if df_final is None or df_final.empty:
         st.warning("Selecione um Ciclo e Período no menu lateral.")
         return
 
-    etapa_options = [c.replace('_Score', '') for c in st.session_state.etapas_scores]
-    etapa_sel = st.selectbox("Selecione a Etapa:", sorted(etapa_options))
-    st.session_state.etapa_selected = etapa_sel
+    loja_options = df_final["Nome_Exibicao"].unique().tolist()
+    loja_sel = st.selectbox("Selecione a Loja:", sorted(loja_options))
+    st.session_state.loja_sb_ui = loja_sel
 
-    col_name = f"{etapa_sel}_Score"
+    loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
 
-    if col_name not in df_final.columns:
-        st.warning(f"Dados para a etapa '{etapa_sel}' não encontrados.")
-        return
+    # --- MUDANÇA AQUI: Cálculo dos minutos faltantes ---
+    max_minutos_circuito = get_circuit_total(st.session_state.periodos_pesos_df, st.session_state.ciclo, st.session_state.periodos)
+    minutos_faltantes = max(0, max_minutos_circuito - loja_row['Pontos_Totais'])
 
-    df_etapa = df_final[['Nome_Exibicao', col_name]].copy().rename(columns={col_name:"Pontuação"}).sort_values("Pontuação", ascending=False)
-    df_etapa.dropna(subset=['Pontuação'], inplace=True)
+    st.markdown(f"**Loja Selecionada:** {loja_row['Nome_Exibicao']}")
+
+    # --- MUDANÇA AQUI: Reorganizando as métricas e adicionando a nova ---
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Pontos Totais", f"{loja_row['Pontos_Totais']:.1f} min")
+    with col2:
+        st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
+    with col3:
+        st.metric("Rank", f"#{int(loja_row['Rank'])}")
+    with col4:
+        st.metric("Minutos Faltantes", f"{minutos_faltantes:.1f} min")
+
+
+    st.markdown("### Pontuação por Etapa")
+    etapa_scores_df = loja_row.filter(regex='_Score').to_frame().T
+    etapa_scores_df.columns = [c.replace('_Score','') for c in etapa_scores_df.columns]
     
-    top10 = df_etapa.head(10)
-    st.subheader(f"Top 10 da Etapa '{etapa_sel}'")
-    st.dataframe(top10, use_container_width=True, hide_index=True)
+    etapa_scores_df_display = etapa_scores_df.copy()
+    for col in etapa_scores_df_display.columns:
+        etapa_scores_df_display[col] = etapa_scores_df_display[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "Ainda sem nota imputada")
+    
+    st.dataframe(etapa_scores_df_display, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
