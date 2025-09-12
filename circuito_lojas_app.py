@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão com novas regras de cálculo e ícone animado (CORRIGIDO)
+# circuito_lojas_app.py — versão com minutos faltantes
 
 import numpy as np
 import pandas as pd
@@ -36,11 +36,8 @@ ETAPA_SHEETS = [
     "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
     "Qualidade", "Meta"
 ]
-# Etapas com score mensal (baseado no ciclo)
 MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
-# Etapas "coringa" que não contam para o total de minutos do circuito
 JOKER_ETAPAS = ["Meta"]
-
 PREMIO_TOP1 = "Bônus Ouro + Folga"
 PREMIO_TOP3 = "Bônus Prata"
 PREMIO_TOP5 = "Bônus Bronze"
@@ -78,7 +75,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Utilitários
+# Funções Utilitárias e de Renderização (sem alterações)
 # ----------------------------------------------------------------------
 def get_period_range(ciclo: str, selected_periods: list, periodos_df: pd.DataFrame):
     if not ciclo or periodos_df is None or periodos_df.empty:
@@ -94,9 +91,6 @@ def get_period_range(ciclo: str, selected_periods: list, periodos_df: pd.DataFra
         return None, None
     return selected_in_order[0], selected_in_order[-1]
 
-# ----------------------------------------------------------------------
-# Render do pódio
-# ----------------------------------------------------------------------
 def render_podio_table(df_final: pd.DataFrame):
     if df_final is None or df_final.empty:
         st.info("Sem dados para exibir no pódio.")
@@ -164,91 +158,66 @@ def render_podio_table(df_final: pd.DataFrame):
     st.markdown("".join(html_table), unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Carregamento & preparação de dados
+# Processamento de Dados (sem alterações)
 # ----------------------------------------------------------------------
 def load_and_prepare_data(all_sheets: dict):
-    """
-    Processa o dicionário de DataFrames obtido do Excel e
-    retorna os DataFrames necessários para o app.
-    """
     all_data = []
     etapas_info_total = {}
     periodos_pesos_records = []
     etapas_pesos_records = []
-
     for sheet_name in ETAPA_SHEETS:
         if sheet_name in all_sheets:
             try:
                 df_etapa = all_sheets[sheet_name]
                 df_etapa.columns = [c.strip() for c in df_etapa.columns]
-
                 if not all(col in df_etapa.columns for col in ['NomeLoja','loja_key','Nota','Ciclo','Período']):
                     continue
-
                 df_etapa['Ciclo'] = df_etapa['Ciclo'].astype(str)
                 df_etapa['Período'] = df_etapa['Período'].astype(str)
-
                 df_etapa = df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'})
                 df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce')
-
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
                 df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
                 all_data.append(df_consolidado)
-
                 if 'PesoDaEtapa' in df_etapa.columns:
                     total_peso_sheet = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0).sum()
                     etapas_info_total[f'{sheet_name}_Score'] = float(total_peso_sheet)
-
                     pesos_gp = df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index()
                     pesos_gp['Etapa'] = f'{sheet_name}_Score'
                     for _, r in pesos_gp.iterrows():
                         etapas_pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
-
                     if sheet_name not in JOKER_ETAPAS:
                         for _, r in df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index().iterrows():
                             periodos_pesos_records.append({'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
-
             except Exception:
                 continue
-
     if not all_data:
         return pd.DataFrame(), [], {}, pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
-
     combined_df = all_data[0]
     for i in range(1, len(all_data)):
         combined_df = pd.merge(combined_df, all_data[i], on=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'], how='outer')
-
     month_order = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
     combined_df['Ciclo'] = combined_df['Ciclo'].astype(str)
     combined_df['Periodo'] = combined_df['Periodo'].astype(str)
     combined_df['Ciclo_Cat'] = pd.Categorical(combined_df['Ciclo'], categories=month_order, ordered=True)
     combined_df = combined_df.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao']).reset_index(drop=True)
-
     for etapa in MONTHLY_ETAPAS:
         score_col = f"{etapa}_Score"
         if score_col in combined_df.columns:
             combined_df[score_col] = combined_df.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
-
     etapas_scores = [c for c in combined_df.columns if c.endswith('_Score')]
-
     periodos_df = combined_df[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
     periodos_formatados = [f"{row['Ciclo']} - {row['Periodo']}" for _, row in periodos_df.iterrows()]
-
     if periodos_pesos_records:
         periodos_pesos_df = pd.DataFrame(periodos_pesos_records).groupby(['Ciclo','Periodo'], as_index=False)['PesoDaEtapa'].sum()
     else:
         periodos_pesos_df = pd.DataFrame(columns=['Ciclo','Periodo','PesoDaEtapa'])
-
     if etapas_pesos_records:
         etapas_pesos_df = pd.DataFrame(etapas_pesos_records).groupby(['Etapa','Ciclo','Periodo'], as_index=False)['PesoDaEtapa'].sum()
     else:
         etapas_pesos_df = pd.DataFrame(columns=['Etapa','Ciclo','Periodo','PesoDaEtapa'])
-
     return combined_df, etapas_scores, etapas_info_total, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df
 
-# ----------------------------------------------------------------------
-# Cálculo de pontuação final
-# ----------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def calculate_final_scores(df: pd.DataFrame, etapas: list, max_minutos_total: float):
     df = df.copy()
@@ -263,9 +232,6 @@ def calculate_final_scores(df: pd.DataFrame, etapas: list, max_minutos_total: fl
     df = df.reset_index(drop=True)
     return df
 
-# ----------------------------------------------------------------------
-# Helpers para somar pesos
-# ----------------------------------------------------------------------
 def get_circuit_total(periodos_pesos_df: pd.DataFrame, ciclo: str, selected_periodos: list | None):
     if periodos_pesos_df is None or periodos_pesos_df.empty or ciclo is None:
         return 0.0
@@ -277,28 +243,11 @@ def get_circuit_total(periodos_pesos_df: pd.DataFrame, ciclo: str, selected_peri
     df = df[df["Periodo"].astype(str).isin([str(p) for p in selected_periodos])]
     return float(df["PesoDaEtapa"].sum())
 
-def get_etapa_pesos_for_selection(etapas_pesos_df: pd.DataFrame, ciclo: str, selected_periodos: list | None):
-    if etapas_pesos_df is None or etapas_pesos_df.empty or ciclo is None:
-        return {}
-    df = etapas_pesos_df[etapas_pesos_df["Ciclo"].astype(str) == str(ciclo)].copy()
-    if df.empty:
-        return {}
-    if not selected_periodos or "Todos" in selected_periodos:
-        gp = df.groupby("Etapa", as_index=False)["PesoDaEtapa"].sum()
-    else:
-        gp = df[df["Periodo"].astype(str).isin([str(p) for p in selected_periodos])].groupby("Etapa", as_index=False)["PesoDaEtapa"].sum()
-    return {row["Etapa"]: float(row["PesoDaEtapa"]) for _, row in gp.iterrows()}
-
-# ----------------------------------------------------------------------
-# Filtragem e agregação
-# ----------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_pesos_df: pd.DataFrame, etapas_pesos_df: pd.DataFrame, ciclo: str | None, periodos: list | None):
     if ciclo is None or periodos is None:
         return pd.DataFrame()
     df = data_original[data_original["Ciclo"].astype(str) == str(ciclo)].copy()
-    if df.empty:
-        return pd.DataFrame()
     if "Todos" not in periodos:
         df = df[df["Periodo"].astype(str).isin([str(p) for p in periodos])]
     if df.empty:
@@ -307,26 +256,13 @@ def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_p
     if not score_cols:
         return pd.DataFrame()
     max_minutos = get_circuit_total(periodos_pesos_df, ciclo, periodos)
-    
     aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum(min_count=1)
-    
     aggregated['Ciclo'] = ciclo
     final = calculate_final_scores(aggregated, score_cols, max_minutos)
     return final
 
-@st.cache_data(show_spinner=False)
-def warm_cache_all_periods(data_original: pd.DataFrame, etapas: list, periodos_pesos_df: pd.DataFrame, periodos_df: pd.DataFrame):
-    if periodos_df.empty:
-        _ = calculate_final_scores(data_original, etapas, 0.0)
-        return 1
-    count = 0
-    for _, row in periodos_df.iterrows():
-        _ = filter_and_score_multi(data_original, etapas, periodos_pesos_df, None, str(row["Ciclo"]), [str(row["Periodo"])])
-        count += 1
-    return count
-
 # ----------------------------------------------------------------------
-# Visual: pista (COM ÍCONE ANIMADO)
+# Visual: Pista com Fundo Dinâmico (FUNÇÃO ATUALIZADA)
 # ----------------------------------------------------------------------
 def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     if data is None or data.empty:
@@ -340,7 +276,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     num_lojas = len(data)
     y_positions = np.arange(num_lojas)
 
-    # Renomeando para clareza
     max_minutos_circuito = max_minutos if max_minutos and max_minutos > 0 else (data["Pontos_Totais"].max() if not data.empty else 100)
 
     def escala_visual(x):
@@ -352,7 +287,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     for y, row in zip(y_positions, data.itertuples()):
         x_carro = escala_visual(row.Pontos_Totais)
         
-        # --- MUDANÇA AQUI: Cálculo dos minutos faltantes ---
         minutos_faltantes = max(0, max_minutos_circuito - row.Pontos_Totais)
         
         fig.add_layout_image(
@@ -374,7 +308,6 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
             hoverinfo="skip", showlegend=False
         ))
         
-        # --- MUDANÇA AQUI: Adicionando "Faltam" ao texto do hover ---
         hover = (f"<b>{row.Nome_Exibicao}</b><br>"
                  f"Minutos: {row.Pontos_Totais:.1f}<br>"
                  f"<b>Faltam: {minutos_faltantes:.1f} min</b><br>"
@@ -423,18 +356,14 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     )
     return fig
 
-
 # ----------------------------------------------------------------------
-# Lógica Principal do Aplicativo (renders)
+# Lógica Principal do App
 # ----------------------------------------------------------------------
 def render_header_and_periodo(campaign_name: str, periodo_inicio: str | None, periodo_fim: str | None):
     st.markdown("<div class='app-header'>", unsafe_allow_html=True)
     st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
     if periodo_inicio and periodo_fim:
-        if periodo_inicio == periodo_fim:
-            st.markdown(f"<p>{periodo_inicio} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<p>{periodo_inicio} → {periodo_fim} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+        st.markdown(f"<p>{periodo_inicio} → {periodo_fim} — Painel de acompanhamento do Circuito</p>" if periodo_inicio != periodo_fim else f"<p>{periodo_inicio} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
     else:
         st.markdown("<p>Período não definido — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
     st.markdown("---")
@@ -445,40 +374,28 @@ def render_geral_page():
     if df_final is None or df_final.empty:
         st.warning("Sem dados para exibir com a seleção atual.")
         return
-
     col1, col2 = st.columns(2)
     with col1:
         st.metric("Total de Lojas", len(df_final))
     with col2:
         top1 = df_final[df_final["Progresso"] >= 100.0]
-        if not top1.empty:
-            st.metric("Ganhador(es) do Bônus Ouro + Folga", f"{top1['Nome_Exibicao'].iloc[0]}")
-        else:
-            st.metric("Líder Atual", f"{df_final['Nome_Exibicao'].iloc[0]}")
-
+        st.metric("Ganhador(es) do Bônus Ouro + Folga", top1['Nome_Exibicao'].iloc[0] if not top1.empty else "—")
     render_podio_table(df_final)
-
     st.markdown("### Pista de Corrida do Circuito")
     max_minutos = get_circuit_total(st.session_state.periodos_pesos_df, st.session_state.ciclo, st.session_state.periodos)
     fig_pista = build_pista_fig(df_final, max_minutos=max_minutos)
     st.plotly_chart(fig_pista, use_container_width=True)
-
     st.markdown("### Classificação Completa")
     df_classificacao = df_final.copy()
     etapa_columns = [col for col in df_classificacao.columns if col.endswith('_Score')]
-
     rename_dict = {col: f"{col.replace('_Score', '')} (min)" for col in etapa_columns}
     df_classificacao.rename(columns=rename_dict, inplace=True)
-
     final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso']
     df_display = df_classificacao[final_columns].copy()
-
     for col in list(rename_dict.values()):
         df_display[col] = df_display[col].apply(lambda x: f"{x:.1f} min" if pd.notna(x) else "Ainda sem nota imputada")
-
     df_display['Pontos_Totais'] = df_display['Pontos_Totais'].apply(lambda x: f"{x:.1f} min")
     df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
-
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 def render_loja_page():
@@ -493,41 +410,12 @@ def render_loja_page():
     st.session_state.loja_sb_ui = loja_sel
 
     loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
-    st.markdown(f"**Loja Selecionada:** {loja_row['Nome_Exibicao']}")
-    st.metric("Pontos Totais", f"{loja_row['Pontos_Totais']:.1f} min")
-    st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
-    st.metric("Rank", f"#{int(loja_row['Rank'])}")
 
-    st.markdown("### Pontuação por Etapa")
-    etapa_scores_df = loja_row.filter(regex='_Score').to_frame().T
-    etapa_scores_df.columns = [c.replace('_Score','') for c in etapa_scores_df.columns]
-    
-    etapa_scores_df_display = etapa_scores_df.copy()
-    for col in etapa_scores_df_display.columns:
-        etapa_scores_df_display[col] = etapa_scores_df_display[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "Ainda sem nota imputada")
-    
-    st.dataframe(etapa_scores_df_display, use_container_width=True, hide_index=True)
-
-def render_loja_page():
-    st.header("Visão por Loja")
-    df_final = st.session_state.get('df_final')
-    if df_final is None or df_final.empty:
-        st.warning("Selecione um Ciclo e Período no menu lateral.")
-        return
-
-    loja_options = df_final["Nome_Exibicao"].unique().tolist()
-    loja_sel = st.selectbox("Selecione a Loja:", sorted(loja_options))
-    st.session_state.loja_sb_ui = loja_sel
-
-    loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
-
-    # --- MUDANÇA AQUI: Cálculo dos minutos faltantes ---
     max_minutos_circuito = get_circuit_total(st.session_state.periodos_pesos_df, st.session_state.ciclo, st.session_state.periodos)
     minutos_faltantes = max(0, max_minutos_circuito - loja_row['Pontos_Totais'])
 
     st.markdown(f"**Loja Selecionada:** {loja_row['Nome_Exibicao']}")
 
-    # --- MUDANÇA AQUI: Reorganizando as métricas e adicionando a nova ---
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Pontos Totais", f"{loja_row['Pontos_Totais']:.1f} min")
@@ -549,11 +437,32 @@ def render_loja_page():
     
     st.dataframe(etapa_scores_df_display, use_container_width=True, hide_index=True)
 
+def render_etapa_page():
+    st.header("Visão por Etapa")
+    df_final = st.session_state.get('df_final')
+    if df_final is None or df_final.empty:
+        st.warning("Selecione um Ciclo e Período no menu lateral.")
+        return
+
+    etapa_options = [c.replace('_Score', '') for c in st.session_state.etapas_scores]
+    etapa_sel = st.selectbox("Selecione a Etapa:", sorted(etapa_options))
+    st.session_state.etapa_selected = etapa_sel
+
+    col_name = f"{etapa_sel}_Score"
+
+    if col_name not in df_final.columns:
+        st.warning(f"Dados para a etapa '{etapa_sel}' não encontrados.")
+        return
+
+    df_etapa = df_final[['Nome_Exibicao', col_name]].copy().rename(columns={col_name:"Pontuação"}).sort_values("Pontuação", ascending=False)
+    df_etapa.dropna(subset=['Pontuação'], inplace=True)
+    
+    top10 = df_etapa.head(10)
+    st.subheader(f"Top 10 da Etapa '{etapa_sel}'")
+    st.dataframe(top10, use_container_width=True, hide_index=True)
+
     st.markdown("---")
 
-# ----------------------------------------------------------------------
-# Inicializações de sessão
-# ----------------------------------------------------------------------
 if 'page' not in st.session_state: st.session_state.page = "Geral"
 if 'ciclo' not in st.session_state: st.session_state.ciclo = None
 if 'periodos' not in st.session_state: st.session_state.periodos = []
@@ -568,9 +477,6 @@ if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
 if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
 if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
 
-# ----------------------------------------------------------------------
-# Carregar dados (GitHub) e processar
-# ----------------------------------------------------------------------
 with st.spinner("Carregando dados do GitHub..."):
     all_sheets = get_data_from_github()
 if not all_sheets:
@@ -587,16 +493,11 @@ st.session_state.periodos_df = periodos_df
 st.session_state.periodos_formatados = periodos_formatados
 st.session_state.periodos_pesos_df = periodos_pesos_df
 st.session_state.etapas_pesos_df = etapas_pesos_df
-_ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
 
-# ----------------------------------------------------------------------
-# Sidebar (filtros e navegação)
-# ----------------------------------------------------------------------
 with st.sidebar:
     st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
     st.markdown("---")
     st.markdown("### Seleção de Ciclo e Período")
-    periodos_df = st.session_state.get('periodos_df', pd.DataFrame())
     ciclos_unicos = periodos_df["Ciclo"].dropna().astype(str).unique().tolist() if not periodos_df.empty else []
     if not ciclos_unicos:
         st.error("Nenhum ciclo disponível nos dados.")
@@ -614,9 +515,6 @@ with st.sidebar:
     if st.button("Visão por Loja", use_container_width=True): st.session_state.page = "Loja"
     if st.button("Visão por Etapa", use_container_width=True): st.session_state.page = "Etapa"
 
-# ----------------------------------------------------------------------
-# Cálculo conforme seleção
-# ----------------------------------------------------------------------
 if st.session_state.ciclo and st.session_state.periodos is not None:
     df_to_render = filter_and_score_multi(
         st.session_state.data_original,
@@ -630,9 +528,6 @@ if st.session_state.ciclo and st.session_state.periodos is not None:
 else:
     st.session_state.df_final = pd.DataFrame()
 
-# ----------------------------------------------------------------------
-# Header & Render de páginas
-# ----------------------------------------------------------------------
 periodo_inicio, periodo_fim = get_period_range(st.session_state.get('ciclo'), st.session_state.get('periodos', []), st.session_state.get('periodos_df', pd.DataFrame()))
 render_header_and_periodo("Circuito MiniPreço", periodo_inicio, periodo_fim)
 
