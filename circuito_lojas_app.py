@@ -332,9 +332,13 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     if data is None or data.empty:
         return go.Figure()
 
-    # --- LINK CORRIGIDO PARA O FORMATO "RAW" ---
-    # Este é o link direto para o arquivo de imagem, que o Plotly consegue carregar.
-    CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/d8245618df322d01a5b8f1614c973290a90cf281/assets/carro-corrida.gif"
+    # --- SEU LINK DO GIF DO CARRO (já transparente e hospedado no seu GitHub) ---
+    CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-transparente.gif" # SUBSTITUA PELO SEU LINK!
+
+    # --- NOVO LINK PARA A IMAGEM DE FUNDO DA PISTA (hospedado no seu GitHub) ---
+    # SUBSTITUA 'SeuUsuario', 'seu-repositorio' e 'sua_pista.png' pelos seus dados reais.
+    TRACK_BACKGROUND_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/c6fc7e46a0fbd49349dae284b5065f2f6f5c6e66/assets/pista-corrida.png" 
+    # Use o nome exato do arquivo que você carregou, e .png, .jpg etc.
 
     fig = go.Figure()
     num_lojas = len(data)
@@ -348,21 +352,10 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
 
     max_vis = escala_visual(max_minutos)
 
-    # Pista
-    for y in y_positions:
-        fig.add_shape(type="rect", x0=0, y0=y-0.45, x1=max_vis, y1=y+0.45,
-                      line=dict(width=0), fillcolor="#2C3E50", layer="below")
-
-    # Linha e bandeira de chegada
-    fig.add_shape(type="line", x0=max_vis, y0=-1, x1=max_vis, y1=num_lojas,
-                  line=dict(color="black", width=4, dash="solid"))
-    for y in range(num_lojas + 2):
-        if y % 2 == 0:
-            fig.add_shape(type="rect", x0=max_vis-0.5, y0=y-1, x1=max_vis+0.5, y1=y,
-                          line=dict(width=0), fillcolor="black", layer="below")
-        else:
-            fig.add_shape(type="rect", x0=max_vis-0.5, y0=y-1, x1=max_vis+0.5, y1=y,
-                          line=dict(width=0), fillcolor="white", layer="below")
+    # REMOVER AS SHAPES ANTIGAS QUE DESENHAVAM A PISTA E A LINHA DE CHEGADA
+    # fig.add_shape(type="rect", x0=0, y0=y-0.45, x1=max_vis, y1=y+0.45, line=dict(width=0), fillcolor="#2C3E50", layer="below")
+    # fig.add_shape(type="line", x0=max_vis, y0=-1, x1=max_vis, y1=num_lojas, line=dict(color="black", width=4, dash="solid"))
+    # Fora removidas pois a imagem de fundo já tem a pista e a linha de chegada.
 
     # LÓGICA PARA INSERIR ÍCONE ANIMADO E RÓTULOS
     for y, row in zip(y_positions, data.itertuples()):
@@ -375,8 +368,8 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
                 yref="y",
                 x=x_carro,
                 y=y,
-                sizex=max_vis * 0.08,
-                sizey=0.8,
+                sizex=max_vis * 0.08, 
+                sizey=0.8,         
                 xanchor="center",
                 yanchor="middle",
                 layer="above"
@@ -398,17 +391,32 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
             x=[x_carro],
             y=[y],
             mode='markers',
-            marker=dict(color='rgba(0,0,0,0)', size=25),
+            marker=dict(color='rgba(0,0,0,0)', size=25), # Marcador invisível
             hoverinfo='text',
             hovertext=hover,
             showlegend=False
         ))
 
     fig.update_yaxes(showgrid=False, zeroline=False, tickmode="array", tickvals=y_positions, ticktext=[])
-    fig.update_xaxes(range=[0, max_vis * 1.05], title_text="Minutos percorridos (escala visual compactada) →")
+    fig.update_xaxes(
+        range=[0, max_vis * 1.05], 
+        title_text="Minutos percorridos (escala visual compactada) →",
+        showgrid=False, zeroline=False, showticklabels=False # Oculta as linhas e rótulos do eixo X para não conflitar com a imagem de fundo
+    )
     fig.update_layout(
-        height=250 + 70*num_lojas, margin=dict(l=10, r=10, t=80, b=40),
-        plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)"
+        height=250 + 70*num_lojas, 
+        margin=dict(l=10, r=10, t=80, b=40),
+        plot_bgcolor="rgba(0,0,0,0)", # Torna o fundo do plot transparente
+        paper_bgcolor="rgba(0,0,0,0)", # Torna o fundo do papel transparente
+        images=[dict(
+            source=TRACK_BACKGROUND_URL,
+            xref="paper", yref="paper",
+            x=0, y=1, sizex=1, sizey=1, # Cobre todo o espaço do gráfico
+            xanchor="left", yanchor="top",
+            sizing="stretch", # Estica a imagem para preencher o espaço
+            opacity=0.8,     # Ajuste a opacidade conforme desejar
+            layer="below"    # Garante que a imagem fique no fundo
+        )]
     )
     return fig
 
