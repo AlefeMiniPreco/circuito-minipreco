@@ -332,8 +332,8 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
     if data is None or data.empty:
         return go.Figure()
 
-    # --- LINK CORRIGIDO PARA O FORMATO "RAW" ---
-    # Este é o link direto para o arquivo de imagem, que o Plotly consegue carregar.
+    # --- NOVO LINK DO CARRO ---
+    # Utilizando a animação .webp que você especificou.
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/afdcbb50f1132d94c34ae85bb5dee657bef4eac2/assets/carro-corrida_anim.webp"
 
     fig = go.Figure()
@@ -344,25 +344,38 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
         max_minutos = data["Pontos_Totais"].max() if not data.empty else 100
 
     def escala_visual(x):
-        return np.sqrt(x)
+        return np.sqrt(max(x, 0))
 
     max_vis = escala_visual(max_minutos)
 
-    # Pista
+    # Pista (mantendo o fundo simples desenhado)
     for y in y_positions:
         fig.add_shape(type="rect", x0=0, y0=y-0.45, x1=max_vis, y1=y+0.45,
                       line=dict(width=0), fillcolor="#2C3E50", layer="below")
 
-    # Linha e bandeira de chegada
-    fig.add_shape(type="line", x0=max_vis, y0=-1, x1=max_vis, y1=num_lojas,
-                  line=dict(color="black", width=4, dash="solid"))
-    for y in range(num_lojas + 2):
-        if y % 2 == 0:
-            fig.add_shape(type="rect", x0=max_vis-0.5, y0=y-1, x1=max_vis+0.5, y1=y,
-                          line=dict(width=0), fillcolor="black", layer="below")
-        else:
-            fig.add_shape(type="rect", x0=max_vis-0.5, y0=y-1, x1=max_vis+0.5, y1=y,
-                          line=dict(width=0), fillcolor="white", layer="below")
+    # --- MUDANÇA AQUI: NOVA LÓGICA DA BANDEIRA QUADRICULADA ---
+    # Substituindo a bandeira antiga por uma mais detalhada.
+    flag_width = max_vis * 0.04  # Largura da bandeira
+    num_cols = 4                  # 4 colunas de quadrados
+    square_size = flag_width / num_cols
+    
+    y_steps = np.arange(-0.5, num_lojas, square_size)
+    for i, y_start in enumerate(y_steps):
+        for j in range(num_cols):
+            x_start = max_vis
+            
+            color = "white" if (i + j) % 2 == 0 else "black"
+            
+            fig.add_shape(
+                type="rect",
+                x0=x_start + (j * square_size),
+                y0=y_start,
+                x1=x_start + ((j+1) * square_size),
+                y1=y_start + square_size,
+                line=dict(width=0.5, color="black"),
+                fillcolor=color,
+                layer="above"
+            )
 
     # LÓGICA PARA INSERIR ÍCONE ANIMADO E RÓTULOS
     for y, row in zip(y_positions, data.itertuples()):
@@ -371,41 +384,42 @@ def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
         fig.add_layout_image(
             dict(
                 source=CAR_ICON_URL,
-                xref="x",
-                yref="y",
-                x=x_carro,
-                y=y,
-                sizex=max_vis * 0.08,
-                sizey=0.8,
-                xanchor="center",
-                yanchor="middle",
+                xref="x", yref="y",
+                x=x_carro, y=y,
+                sizex=max_vis * 0.08, sizey=0.8,
+                xanchor="center", yanchor="middle",
                 layer="above"
             )
         )
 
         fig.add_trace(go.Scatter(
-            x=[x_carro], 
-            y=[y-0.5], 
-            mode="text", 
-            text=[row.Nome_Exibicao],
-            textfont=dict(size=9, color="rgba(255,255,255,0.9)"), 
-            hoverinfo="skip", 
-            showlegend=False
+            x=[x_carro], y=[y-0.5],
+            mode="text", text=[row.Nome_Exibicao],
+            textfont=dict(size=9, color="rgba(255,255,255,0.9)"),
+            hoverinfo="skip", showlegend=False
         ))
         
         hover = f"<b>{row.Nome_Exibicao}</b><br>Minutos: {row.Pontos_Totais:.1f}<br>Progresso: {row.Progresso:.1f}%<br>Rank: #{int(row.Rank)}"
         fig.add_trace(go.Scatter(
-            x=[x_carro],
-            y=[y],
+            x=[x_carro], y=[y],
             mode='markers',
             marker=dict(color='rgba(0,0,0,0)', size=25),
-            hoverinfo='text',
-            hovertext=hover,
+            hoverinfo='text', hovertext=hover,
             showlegend=False
         ))
 
-    fig.update_yaxes(showgrid=False, zeroline=False, tickmode="array", tickvals=y_positions, ticktext=[])
-    fig.update_xaxes(range=[0, max_vis * 1.05], title_text="Minutos percorridos (escala visual compactada) →")
+    # --- MUDANÇA AQUI: GRÁFICO FIXO ---
+    fig.update_xaxes(
+        range=[0, max_vis * 1.05], 
+        title_text="Minutos percorridos (escala visual compactada) →",
+        fixedrange=True  # Trava o zoom/arrasto no eixo X
+    )
+    fig.update_yaxes(
+        showgrid=False, zeroline=False, 
+        tickmode="array", tickvals=y_positions, ticktext=[],
+        fixedrange=True  # Trava o zoom/arrasto no eixo Y
+    )
+    
     fig.update_layout(
         height=250 + 70*num_lojas, margin=dict(l=10, r=10, t=80, b=40),
         plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)"
