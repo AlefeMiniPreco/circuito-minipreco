@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE VALUE_ERROR E PISTA HÍBRIDA
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE KEY_ERROR
 
 import numpy as np
 import pandas as pd
@@ -61,8 +61,6 @@ st.markdown("""
 .loja-cell { font-weight: 800; color: #FFFFFF; font-size: 1.1em; }
 .progress-bar-container { background-color: #374151; border-radius: 10px; overflow: hidden; height: 18px; width: 100%; min-width: 100px; }
 .progress-bar { background: linear-gradient(90deg, #6EE7B7, #10B981); height: 100%; border-radius: 10px; text-align: center; color: white; font-size: 12px; line-height: 18px; font-weight: 600;}
-
-/* Media Query para Otimização Mobile */
 @media (max-width: 640px) {
     .app-header h1 { font-size: 28px !important; }
     .app-header p { font-size: 12px; }
@@ -112,7 +110,8 @@ def load_and_prepare_data(all_sheets: dict):
                 df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
                 for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
                 if 'PesoDaEtapa' in df_etapa.columns:
-                    nota_num, peso_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0), pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
                     df_etapa['Score_Etapa'] = nota_num * peso_num
                 else:
                     df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
@@ -204,20 +203,12 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
 
 def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
     if data is None or data.empty: return go.Figure()
-    
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
     fig = go.Figure()
-
     max_posicao_carro = data['Posicao_Horas'].max() if not data.empty else 0
     limite_eixo = max(duracao_total_horas, max_posicao_carro)
-    
-    # Desenha as pistas
     for i in range(len(data)):
-        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, 
-                      line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), 
-                      fillcolor="#2C3E50", layer="below")
-        
-    # Linhas de Partida e Chegada
+        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), fillcolor="#2C3E50", layer="below")
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
     square_size = max(0.5, duracao_total_horas / 40)
     num_cols = 2 
@@ -225,52 +216,18 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         for j in range(num_cols):
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
-    
-    # Adiciona os Nomes das Lojas e a Interação (Hover/Toque)
     hover_texts = []
     for i, row in data.iterrows():
-        hover_texts.append(
-            f"<b>{row['Nome_Exibicao']}</b><br><br>"
-            f"Avanço: {row['Posicao_Horas']:.2f}h<br>"
-            f"Progresso: {row['Progresso']:.1f}%<br>"
-            f"Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>"
-            f"Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>"
-            f"Rank: #{row['Rank']}"
-        )
-    
-    fig.add_trace(go.Scatter(
-        x=data['Posicao_Horas'],
-        y=data.index,
-        mode='text',
-        text=data['Nome_Exibicao'],
-        textposition="top center",
-        textfont=dict(color='white', size=10),
-        hoverinfo='text',
-        hovertext=hover_texts,
-        showlegend=False
-    ))
-
-    # Adiciona os Ícones dos Carros (Método Antigo e Confiável)
+        hover_texts.append(f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
+    fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=data.index, mode='text', text=data['Nome_Exibicao'], textposition="top center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
     for i, row in data.iterrows():
-        fig.add_layout_image(
-            dict(
-                source=CAR_ICON_URL,
-                xref="x", yref="y",
-                x=row['Posicao_Horas'], y=i,
-                sizex=max(1.5, duracao_total_horas / 20),
-                sizey=0.85,
-                xanchor="center", yanchor="middle",
-                layer="above"
-            )
-        )
-
+        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.5, duracao_total_horas / 20), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
     return fig
 
 def render_geral_page():
-    # ... (código mantido como na versão anterior)
     st.header("Visão Geral da Corrida")
     df_final = st.session_state.get('df_final')
     if df_final is None or df_final.empty:
@@ -306,7 +263,8 @@ def render_geral_page():
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
-        html.append(f"<td>{row['Avanço_Horas']:.2f}h</td>")
+        # *** CORREÇÃO DO KEYERROR AQUI ***
+        html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         html.append(f"<td>{prog_bar}</td>")
         if show_details:
             for col in score_cols_with_data:
@@ -316,7 +274,6 @@ def render_geral_page():
     st.markdown("".join(html), unsafe_allow_html=True)
 
 def render_loja_page():
-    # ... (código mantido como na versão anterior)
     st.header("Visão por Loja")
     df_final = st.session_state.get('df_final')
     etapas_pesos_df = st.session_state.get('etapas_pesos_df', pd.DataFrame())
@@ -328,7 +285,7 @@ def render_loja_page():
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Avanço na Pista", f"{loja_row['Avanço_Horas']:.2f}h")
+        with col1: st.metric("Avanço na Pista", f"{loja_row['Posicao_Horas']:.2f}h")
         with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row['Boost_Total_Min'] / 60)}")
         with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
         with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
@@ -362,7 +319,6 @@ def render_loja_page():
                     st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
-    # ... (código mantido como na versão anterior)
     st.header("Visão por Etapa")
     df_final = st.session_state.get('df_final')
     etapas_scores_cols = st.session_state.get('etapas_scores_cols', [])
