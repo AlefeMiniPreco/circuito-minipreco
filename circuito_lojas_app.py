@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — versão com melhorias de gamificação (Minutos_Ganhos, normalização, badges, milestones)
+# circuito_lojas_app.py — versão com insights de melhoria e gráfico de radar (CORRIGIDO)
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -14,318 +15,292 @@ from io import BytesIO
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
 # ----------------------------------------------------------------------
-# (o restante do seu código original permanece - carregamento de dados, funções utilitárias, etc.)
+# Fonte de dados: GitHub (raw)
 # ----------------------------------------------------------------------
-# OBS: mantive quase todas as funções originais intactas; adicionei/alterei as funções de cálculo e renderização
-# para refletir as mudanças pedidas: Minutos_Ganhos, normalização, badges, milestones, labels atualizados.
-# ----------------------------------------------------------------------
+GITHUB_FILE_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/BaseCircuito.xlsx"
 
-# ----------------------------------------------------------------------
-# Novas/Alteradas: cálculo de pontuação final (Minutos_Ganhos), normalização, badges, milestones
-# ----------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def calculate_final_scores(df: pd.DataFrame, etapas: list, max_minutos_total: float, normalize_by: str = None, milestones_pct=[25,50,75,100]):
-    """
-    Calcula pontuação final transformando pontos em 'Minutos_Ganhos' (mais intuitivo),
-    adiciona normalização (por porte/fluxo), percentil, z-score, badges e milestones.
-    Mantém colunas antigas 'Pontos_Totais' e 'Progresso' para compatibilidade com código legado.
-    Params:
-    - df: dataframe com colunas de score por etapa
-    - etapas: lista de colunas *_Score (ou nome das etapas)
-    - max_minutos_total: meta do circuito (p. ex. soma dos pesos)
-    - normalize_by: coluna (str) para normalizar por porte/fluxo da loja (opcional)
-    - milestones_pct: lista de percentuais que definem checkpoints
-    """
-    df = df.copy()
-    for e in etapas:
-        if e not in df.columns:
-            df[e] = 0.0
-
-    # Minutos ganhos = soma das etapas (métrica principal, mais intuitiva)
-    df["Minutos_Ganhos"] = df[etapas].sum(axis=1)
-
-    # Normalização por porte/fluxo (opcional) para fairness
-    if normalize_by and normalize_by in df.columns:
-        # evitar divisão por zero
-        df["_norm_base"] = df[normalize_by].replace({0: np.nan})
-        # opções de normalização: simples, sqrt, log - aqui usamos log(1+x)
-        df["Minutos_Normalizados"] = df["Minutos_Ganhos"] / np.log1p(df["_norm_base"])
-        df["Minutos_Normalizados"] = df["Minutos_Normalizados"].fillna(df["Minutos_Ganhos"])
-        score_col_for_rank = "Minutos_Normalizados"
-    else:
-        df["Minutos_Normalizados"] = df["Minutos_Ganhos"]
-        score_col_for_rank = "Minutos_Ganhos"
-
-    # Meta e progresso (%)
-    max_p = max_minutos_total if max_minutos_total and max_minutos_total > 0 else (df[score_col_for_rank].max() if not df.empty else 1)
-    df["ProgressoPct"] = (df[score_col_for_rank] / max_p) * 100.0
-    df["Minutos_Faltantes"] = (max_p - df[score_col_for_rank]).clip(lower=0.0)
-
-    # Rank por score_col_for_rank (descendente)
-    df["Rank"] = df[score_col_for_rank].rank(method="dense", ascending=False).astype(int)
-
-    # Percentil e z-score (para análises e identificação de outliers)
-    df["Percentil"] = df[score_col_for_rank].rank(pct=True) * 100.0
-    # zscore manual (population)
-    mean_val = df[score_col_for_rank].mean() if not df.empty else 0.0
-    std_val = df[score_col_for_rank].std(ddof=0) if not df.empty else 0.0
-    df["Zscore"] = ((df[score_col_for_rank] - mean_val) / (std_val if std_val != 0 else 1)).round(3)
-
-    # Milestones (retorna maior checkpoint atingido e lista booleana de checkpoints)
-    ms = sorted(set([int(m) for m in milestones_pct]))
-    for m in ms:
-        col = f"Reached_{m}pct"
-        df[col] = df["ProgressoPct"] >= m
-    # maior milestone atingida (rótulo)
-    def _highest_milestone(r):
-        achieved = [m for m in ms if r["ProgressoPct"] >= m]
-        return f"{max(achieved)}%" if achieved else "Nenhum"
-    df["Milestone_Atingida"] = df.apply(_highest_milestone, axis=1)
-
-    # Badges/tiers simples (configuráveis)
-    def assign_badge(pct):
-        if pct >= 90: return "Ouro"
-        if pct >= 60: return "Prata"
-        if pct >= 30: return "Bronze"
-        return "Participação"
-    df["Badge"] = df["ProgressoPct"].round(1).apply(assign_badge)
-
-    # compatibilidade com código antigo: expor colunas antigas
-    df["Pontos_Totais"] = df["Minutos_Ganhos"]
-    df["Progresso"] = df["ProgressoPct"]
-
-    # ordenação e reset index
-    df.sort_values([score_col_for_rank, "Nome_Exibicao"], ascending=[False, True], inplace=True)
-    df = df.reset_index(drop=True)
-    return df
+def get_data_from_github():
+    """Baixa o arquivo BaseCircuito.xlsx direto do GitHub e retorna como dict de DataFrames."""
+    try:
+        df = pd.read_excel(GITHUB_FILE_URL, sheet_name=None, engine="openpyxl")
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar os dados do GitHub: {e}")
+        return {}
 
 # ----------------------------------------------------------------------
-# Gamificação — configurações rápidas (sidebar)
+# Constantes do arquivo
 # ----------------------------------------------------------------------
-# preserva opções na session_state
-if 'gamification_normalize_by' not in st.session_state:
-    st.session_state.gamification_normalize_by = None
-if 'gamification_milestones' not in st.session_state:
-    st.session_state.gamification_milestones = [25,50,75,100]
-if 'gamification_show_badges' not in st.session_state:
-    st.session_state.gamification_show_badges = True
-if 'gamification_show_percentil' not in st.session_state:
-    st.session_state.gamification_show_percentil = False
+ETAPA_SHEETS = [
+    "PlanoVoo", "ProjetoFast", "PontoPartida", "AcoesComerciais", "PainelVendas",
+    "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
+    "Qualidade", "Meta"
+]
+# Etapas com score mensal (baseado no ciclo)
+MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
+# Etapas "coringa" que não contam para o total de minutos do circuito
+JOKER_ETAPAS = ["Meta"]
 
-with st.sidebar:
-    st.markdown('### Gamificação — configurações')
-    # detect numeric columns for normalization if data loaded
-    data_orig = st.session_state.get('data_original', pd.DataFrame())
-    numeric_cols = []
-    if not data_orig.empty:
-        numeric_cols = data_orig.select_dtypes(include=[np.number]).columns.tolist()
-    norm_choice = st.selectbox("Normalizar por (porte/fluxo) — opcional", options=['Nenhum'] + numeric_cols, index=0)
-    st.session_state.gamification_normalize_by = None if norm_choice == 'Nenhum' else norm_choice
-
-    milestones_choice = st.multiselect("Milestones (%) — checkpoints", options=[10,25,30,50,60,75,90,100], default=st.session_state.gamification_milestones)
-    st.session_state.gamification_milestones = sorted(list(set([int(x) for x in milestones_choice]))) if milestones_choice else [25,50,75,100]
-
-    st.session_state.gamification_show_badges = st.checkbox("Mostrar badges/tiers", value=st.session_state.gamification_show_badges)
-    st.session_state.gamification_show_percentil = st.checkbox("Mostrar percentil e z-score (debug)", value=st.session_state.gamification_show_percentil)
+PREMIO_TOP1 = "Bônus Ouro + Folga"
+PREMIO_TOP3 = "Bônus Prata"
+PREMIO_TOP5 = "Bônus Bronze"
+PREMIO_DEMAIS = "Reconhecimento + Plano de Ação"
 
 # ----------------------------------------------------------------------
-# (Funções de suporte visual atualizadas)
+# CSS (visuais)
 # ----------------------------------------------------------------------
-def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
-    """
-    Gera figura da pista usando 'Minutos_Ganhos' como métrica principal.
-    Hover inclui Minutos_Ganhos, Minutos_Faltantes, ProgressoPct, Badge e Milestone.
-    """
-    if data is None or data.empty:
-        return go.Figure()
-
-    CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
-
-    fig = go.Figure()
-    num_lojas = len(data)
-    y_positions = np.arange(num_lojas)
-
-    # escolher coluna principal preferencialmente Minutos_Ganhos (compatível com versões antigas)
-    value_col = "Minutos_Ganhos" if "Minutos_Ganhos" in data.columns else ("Pontos_Totais" if "Pontos_Totais" in data.columns else data.columns[0])
-
-    if max_minutos is None or max_minutos == 0:
-        max_minutos = data[value_col].max() if not data.empty else 100
-
-    def escala_visual(x):
-        return np.sqrt(max(x, 0))
-
-    max_vis = escala_visual(max_minutos)
-
-    for idx, y in enumerate(y_positions):
-        row = data.iloc[idx]
-        val = float(row.get(value_col, 0))
-        vis_val = escala_visual(val)
-        y0 = y - 0.35
-        y1 = y + 0.35
-
-        # barra de pista (fundo)
-        fig.add_shape(type="rect", x0=0, y0=y0, x1=max_vis, y1=y1,
-                      line=dict(width=0), fillcolor="#2C3E50", layer="below")
-
-        # barra de progresso (visível)
-        fig.add_shape(type="rect", x0=0, y0=y0, x1=vis_val, y1=y1,
-                      line=dict(width=0), fillcolor="#10B981", layer="above")
-
-        # marcador (carro) na posição proporcional
-        car_x = min(vis_val, max_vis)
-        fig.add_trace(go.Scatter(
-            x=[car_x], y=[y], mode="markers", marker_symbol="car", marker_size=28,
-            hoverinfo="text",
-            hovertext=(
-                f"<b>{row.get('Nome_Exibicao','-')}</b><br>"
-                f"Minutos ganhos: {val:.1f} min<br>"
-                f"Progresso: {row.get('ProgressoPct', row.get('Progresso',0)):.1f}%<br>"
-                f"Faltam: {row.get('Minutos_Faltantes', max(0, max_minutos - val)):.1f} min<br>"
-                + (f"Badge: {row.get('Badge')}<br>" if row.get('Badge') else "")
-                + (f"Milestone: {row.get('Milestone_Atingida')}" if row.get('Milestone_Atingida') else "")
-            ),
-            showlegend=False
-        ))
-
-    # eixo e layout
-    fig.update_yaxes(visible=False)
-    fig.update_xaxes(title_text="Minutos ganhos (escala visual)", range=[0, max_vis*1.05])
-    fig.update_layout(height=80 + 60 * num_lojas, margin=dict(l=40, r=40, t=30, b=40), template="plotly_dark")
-    return fig
+st.markdown("""
+<style>
+.app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
+.app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
+.app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
+.podio-track { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; margin-bottom: 16px; }
+.podio-track thead th { background: linear-gradient(90deg,#0b1220 0%, #131a25 100%); color: #fff; padding: 12px; text-align: left; font-size: 14px; border-bottom: 3px solid rgba(255,255,255,0.06); }
+.podio-track tbody tr { transition: transform 0.18s ease, box-shadow 0.18s ease; height: 56px; }
+.podio-track tbody tr:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,0,0,0.45); }
+.podio-lane { width: 80px; font-weight: 700; font-size: 16px; color: #111827; text-align: center; background: linear-gradient(180deg,#f7fafc,#e6edf3); border-right: 2px solid rgba(0,0,0,0.04); }
+.podio-row { background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); color: inherit; }
+.podio-col-loja { padding: 12px; font-weight: 800; font-size: 15px; color: #0f172a; background: linear-gradient(90deg, rgba(255,255,255,0.88), rgba(255,255,255,0.95)); border-radius: 6px; display: inline-block; padding-left: 14px; padding-right: 14px; }
+.podio-col-points { padding: 12px; font-size: 14px; text-align: center; color: #e6edf3; font-weight:700; }
+.podio-finish { min-width: 140px; text-align: center; padding: 8px; font-weight: 700; color: #0f172a; background: linear-gradient(90deg,#fff 0%, #e6f4ea 100%); border-radius: 8px; display: inline-block; }
+.checkered { background-image: linear-gradient(45deg, #000 25%, transparent 25%, transparent 75%, #000 75%, #000), linear-gradient(45deg, #000 25%, transparent 25%, transparent 75%, #000 75%, #000); background-size: 12px 12px; background-position: 0 0, 6px 6px; width: 28px; height: 28px; display:inline-block; margin-right:8px; vertical-align: middle; border-radius:4px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.podio-prize { padding: 8px 10px; border-radius: 8px; display:inline-block; font-weight:700; color: #111827; }
+.gold { background: linear-gradient(90deg,#ffd54a,#f1c40f); }
+.silver { background: linear-gradient(90deg,#cfd8dc,#b0bec5); }
+.bronze { background: linear-gradient(90deg,#d7a77a,#c07a47); }
+.other { background: linear-gradient(90deg,#edf2f7,#e2e8f0); color:#0f172a; }
+.metric-card { background: linear-gradient(135deg, #2c3e50, #4a6580); border-radius: 16px; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); text-align: center; transition: all 0.3s ease; height: 100%; color: white; }
+.metric-card:hover { transform: translateY(-5px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+.metric-value { font-size: 32px; font-weight: 800; margin: 10px 0; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.metric-label { font-size: 14px; color: rgba(255,255,255,0.9); margin-bottom: 5px; }
+@media (max-width: 900px) { .podio-lane { display:none; } .podio-track thead th:nth-child(1), .podio-track tbody td:nth-child(1) { display:none; } }
+</style>
+""", unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Render do pódio (atualizado para mostrar Badge e Milestone)
+# Utilitários
+# ----------------------------------------------------------------------
+def get_period_range(ciclo: str, selected_periods: list, periodos_df: pd.DataFrame):
+    if not ciclo or periodos_df is None or periodos_df.empty:
+        return None, None
+    ciclo_df = periodos_df[periodos_df["Ciclo"].astype(str) == str(ciclo)].reset_index(drop=True)
+    if ciclo_df.empty:
+        return None, None
+    ordered_periods = ciclo_df["Periodo"].astype(str).tolist()
+    if not selected_periods or "Todos" in selected_periods:
+        return ordered_periods[0], ordered_periods[-1]
+    selected_in_order = [p for p in ordered_periods if p in selected_periods]
+    if not selected_in_order:
+        return None, None
+    return selected_in_order[0], selected_in_order[-1]
+
+# ----------------------------------------------------------------------
+# Render do pódio
 # ----------------------------------------------------------------------
 def render_podio_table(df_final: pd.DataFrame):
     if df_final is None or df_final.empty:
         st.info("Sem dados para exibir no pódio.")
         return
 
-    # use progresso compatível ou ProgressoPct se existir
-    progresso_col = "Progresso" if "Progresso" in df_final.columns else "ProgressoPct"
+    winners = df_final[df_final["Progresso"] >= 100.0].sort_values("Rank").reset_index(drop=True)
 
-    winners = df_final[df_final[progresso_col] >= 100.0].sort_values("Rank").reset_index(drop=True)
-
-    # Helper to format extra badges/milestones
-    def extras_text(row):
-        parts = []
-        if "Badge" in row and st.session_state.get('gamification_show_badges', True):
-            parts.append(f"Badge: <b>{row['Badge']}</b>")
-        if "Milestone_Atingida" in row:
-            parts.append(f"Milestone: <b>{row['Milestone_Atingida']}</b>")
-        if st.session_state.get('gamification_show_percentil', False):
-            if "Percentil" in row:
-                parts.append(f"Percentil: {row['Percentil']:.1f}º")
-            if "Zscore" in row:
-                parts.append(f"Z-score: {row['Zscore']:.2f}")
-        return " • ".join(parts)
-
-    if not winners.empty:
-        st.markdown("### Parabéns ao(s) vencedor(es) que alcançaram 100% da meta")
-        cols = st.columns(len(winners.head(3)))
-        for i in range(min(3, len(winners))):
-            row = winners.loc[i]
-            nome = row["Nome_Exibicao"]
-            pontos = row.get("Pontos_Totais", row.get("Minutos_Ganhos", 0))
-            progresso = row.get(progresso_col, 0)
-            rank = row.get("Rank", i+1)
-            with cols[i]:
-                st.markdown(
-                    f"""<div style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center;'>
-                        <h3 style='margin:0'>{i+1}º — {nome}</h3>
-                        <p style='margin:6px 0 0 0; opacity:0.95'>Rank: #{rank} • {pontos:.1f} min</p>
-                        <p style='margin:6px 0 0 0; opacity:0.85'>Progresso: {progresso:.1f}%</p>
-                        <p style='margin:6px 0 0 0; opacity:0.85'>{extras_text(row)}</p>
-                    </div>""", unsafe_allow_html=True)
+    if winners.empty:
+        st.markdown("Nenhuma loja cruzou a linha de chegada. Top 3 do ranking atual:")
+        top3 = df_final.head(3).reset_index(drop=True)
+        cols = st.columns(3)
+        for i in range(3):
+            if i < len(top3):
+                row = top3.loc[i]
+                nome = row["Nome_Exibicao"]; pontos = row["Pontos_Totais"]; progresso = row["Progresso"]; rank = row["Rank"]
+                with cols[i]:
+                    st.markdown(
+                        f"<div style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center;'>"
+                        f"<h3 style='margin:0'>{i+1}º — {nome}</h3>"
+                        f"<p style='margin:6px 0 0 0; opacity:0.85'>Rank: #{rank}</p>"
+                        f"<h2 style='margin:8px 0 0 0'>{pontos:.1f} min</h2>"
+                        f"<p style='margin:6px 0 0 0; font-size:14px; opacity:0.85'>Progresso: {progresso:.1f}%</p>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+            else:
+                with cols[i]:
+                    st.markdown(
+                        "<div style='padding:18px; border-radius:12px; background:rgba(255,255,255,0.03);color:#fff; text-align:center; opacity:0.5;'>"
+                        f"<h3 style='margin:0'>{i+1}º</h3><p style='margin:6px 0 0 0; opacity:0.7'>—</p></div>",
+                        unsafe_allow_html=True
+                    )
         return
 
-    # se ninguém alcançou 100%, mostrar top3 do ranking atual
-    st.markdown("Nenhuma loja cruzou a linha de chegada. Top 3 do ranking atual:")
-    top3 = df_final.head(3).reset_index(drop=True)
-    cols = st.columns(3)
-    for i in range(3):
-        if i < len(top3):
-            row = top3.loc[i]
-            nome = row["Nome_Exibicao"]
-            pontos = row.get("Pontos_Totais", row.get("Minutos_Ganhos", 0))
-            progresso = row.get(progresso_col, 0)
-            rank = row.get("Rank", i+1)
-            extras = extras_text(row)
-            with cols[i]:
-                st.markdown(
-                    f"""<div style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0b1220,#111827);color:white; text-align:center;'>
-                        <h3 style='margin:0'>{i+1}º — {nome}</h3>
-                        <p style='margin:6px 0 0 0; opacity:0.95'>Rank: #{rank} • {pontos:.1f} min</p>
-                        <p style='margin:6px 0 0 0; opacity:0.85'>Progresso: {progresso:.1f}%</p>
-                        <p style='margin:6px 0 0 0; opacity:0.85'>{extras}</p>
-                    </div>""", unsafe_allow_html=True)
+    html_table = []
+    html_table.append("<table class='podio-track' role='table'>")
+    html_table.append("<thead><tr>")
+    html_table.append("<th style='width:80px;'>#</th>")
+    html_table.append("<th>Loja</th>")
+    html_table.append("<th style='width:120px; text-align:center;'>Minutos</th>")
+    html_table.append("<th style='width:140px; text-align:center;'>Progresso</th>")
+    html_table.append("<th style='width:220px; text-align:center;'>Premiação</th>")
+    html_table.append("</tr></thead><tbody>")
+
+    for _, row in winners.iterrows():
+        pos = int(row["Rank"]); nome = row["Nome_Exibicao"]; pontos = row["Pontos_Totais"]; progresso = row["Progresso"]
+        if pos == 1:
+            premio = PREMIO_TOP1; premio_class = "gold"
+        elif pos in (2, 3):
+            premio = PREMIO_TOP3; premio_class = "silver"
+        elif pos in (4, 5):
+            premio = PREMIO_TOP5; premio_class = "bronze"
+        else:
+            premio = PREMIO_DEMAIS; premio_class = "other"
+
+        lane_html = f"<td class='podio-lane'>{pos}º</td>"
+        loja_html = f"<td><span class='podio-col-loja'>{nome}</span></td>"
+        pontos_html = f"<td class='podio-col-points'>{pontos:.1f} min</td>"
+        progresso_html = f"<td style='text-align:center; padding:12px;'><div class='podio-finish'><span class='checkered'></span> {progresso:.1f}%</div></td>"
+        premio_html = f"<td style='text-align:center;'><span class='podio-prize {premio_class}'>{premio}</span></td>"
+
+        html_table.append(f"<tr class='podio-row'>{lane_html}{loja_html}{pontos_html}{progresso_html}{premio_html}</tr>")
+
+    html_table.append("</tbody></table>")
+    st.markdown("### Pódio — Lojas que cruzaram a linha de chegada", unsafe_allow_html=True)
+    st.markdown("".join(html_table), unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Ajuste nas renderizações principais (Visão Geral) para exibir novas colunas
+# Carregamento & preparação de dados
 # ----------------------------------------------------------------------
-def render_geral_page():
-    st.header("Visão Geral")
-    df_final = st.session_state.get('df_final')
-    if df_final is None or df_final.empty:
-        st.warning("Sem dados para exibir com a seleção atual.")
-        return
+def load_and_prepare_data(all_sheets: dict):
+    """
+    Processa o dicionário de DataFrames obtido do Excel e
+    retorna os DataFrames necessários para o app.
+    """
+    all_data = []
+    etapas_info_total = {}
+    periodos_pesos_records = []
+    etapas_pesos_records = []
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Total de Lojas", len(df_final))
-    with col2:
-        # mostrar líder atual
-        st.metric("Líder Atual", f"{df_final['Nome_Exibicao'].iloc[0]}")
+    for sheet_name in ETAPA_SHEETS:
+        if sheet_name in all_sheets:
+            try:
+                df_etapa = all_sheets[sheet_name]
+                df_etapa.columns = [c.strip() for c in df_etapa.columns]
 
-    render_podio_table(df_final)
+                if not all(col in df_etapa.columns for col in ['NomeLoja','loja_key','Nota','Ciclo','Período']):
+                    continue
 
-    st.markdown("### Pista de Corrida do Circuito")
-    max_minutos = st.session_state.get('max_minutos_circuito', 0.0)
-    fig_pista = build_pista_fig(df_final, max_minutos=max_minutos)
-    st.plotly_chart(fig_pista, use_container_width=True)
+                df_etapa['Ciclo'] = df_etapa['Ciclo'].astype(str)
+                df_etapa['Período'] = df_etapa['Período'].astype(str)
 
-    st.markdown("### Classificação Completa")
-    df_classificacao = df_final.copy()
+                df_etapa = df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'})
+                
+                # O score (minutos) agora é o resultado da Nota multiplicada pelo PesoDaEtapa.
+                if 'PesoDaEtapa' in df_etapa.columns:
+                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    df_etapa['Score_Etapa'] = nota_num * peso_num
+                else:
+                    df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
 
-    # usar Minutos_Ganhos como principal (compatibilidade com Pontos_Totais)
-    main_col = "Minutos_Ganhos" if "Minutos_Ganhos" in df_classificacao.columns else "Pontos_Totais"
-    df_classificacao['Faltam (min)'] = (max_minutos - df_classificacao[main_col]).clip(lower=0)
+                df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
+                df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
+                all_data.append(df_consolidado)
 
-    etapa_columns = [col for col in df_classificacao.columns if col.endswith('_Score')]
+                if 'PesoDaEtapa' in df_etapa.columns:
+                    total_peso_sheet = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0).sum()
+                    etapas_info_total[f'{sheet_name}_Score'] = float(total_peso_sheet)
 
-    rename_dict = {col: f"{col.replace('_Score', '')} (min)" for col in etapa_columns}
-    df_classificacao.rename(columns=rename_dict, inplace=True)
+                    pesos_gp = df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index()
+                    pesos_gp['Etapa'] = f'{sheet_name}_Score'
+                    for _, r in pesos_gp.iterrows():
+                        etapas_pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
 
-    # montar colunas finais, incluindo badges/milestones opcionalmente
-    final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + [main_col, 'ProgressoPct' if 'ProgressoPct' in df_classificacao.columns else 'Progresso', 'Faltam (min)']
-    if 'Badge' in df_classificacao.columns and st.session_state.get('gamification_show_badges', True):
-        final_columns.append('Badge')
-    if 'Milestone_Atingida' in df_classificacao.columns:
-        final_columns.append('Milestone_Atingida')
-    if st.session_state.get('gamification_show_percentil', False):
-        if 'Percentil' in df_classificacao.columns:
-            final_columns.append('Percentil')
-        if 'Zscore' in df_classificacao.columns:
-            final_columns.append('Zscore')
+                    if sheet_name not in JOKER_ETAPAS:
+                        for _, r in df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index().iterrows():
+                            periodos_pesos_records.append({'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoDaEtapa': float(r['PesoDaEtapa'])})
 
-    df_display = df_classificacao[final_columns].copy()
+            except Exception:
+                continue
 
-    for col in list(rename_dict.values()):
-        df_display[col] = df_display[col].apply(lambda x: f"{x:.1f} min" if pd.notna(x) else "Ainda sem nota imputada")
+    if not all_data:
+        return pd.DataFrame(), [], {}, pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
 
-    # format main columns
-    df_display[main_col] = df_display[main_col].apply(lambda x: f"{x:.1f} min")
-    prog_col = 'ProgressoPct' if 'ProgressoPct' in df_display.columns else 'Progresso'
-    df_display[prog_col] = df_display[prog_col].apply(lambda x: f"{x:.1f}%")
-    df_display['Faltam (min)'] = df_display['Faltam (min)'].apply(lambda x: f"{x:.1f} min")
+    combined_df = all_data[0]
+    for i in range(1, len(all_data)):
+        combined_df = pd.merge(combined_df, all_data[i], on=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'], how='outer')
 
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    month_order = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    combined_df['Ciclo'] = combined_df['Ciclo'].astype(str)
+    combined_df['Periodo'] = combined_df['Periodo'].astype(str)
+    combined_df['Ciclo_Cat'] = pd.Categorical(combined_df['Ciclo'], categories=month_order, ordered=True)
+    combined_df = combined_df.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao']).reset_index(drop=True)
+
+    for etapa in MONTHLY_ETAPAS:
+        score_col = f"{etapa}_Score"
+        if score_col in combined_df.columns:
+            combined_df[score_col] = combined_df.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
+
+    etapas_scores = [c for c in combined_df.columns if c.endswith('_Score')]
+
+    periodos_df = combined_df[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
+    periodos_formatados = [f"{row['Ciclo']} - {row['Periodo']}" for _, row in periodos_df.iterrows()]
+
+    if periodos_pesos_records:
+        periodos_pesos_df = pd.DataFrame(periodos_pesos_records).groupby(['Ciclo','Periodo'], as_index=False)['PesoDaEtapa'].sum()
+    else:
+        periodos_pesos_df = pd.DataFrame(columns=['Ciclo','Periodo','PesoDaEtapa'])
+
+    if etapas_pesos_records:
+        etapas_pesos_df = pd.DataFrame(etapas_pesos_records).groupby(['Etapa','Ciclo','Periodo'], as_index=False)['PesoDaEtapa'].sum()
+    else:
+        etapas_pesos_df = pd.DataFrame(columns=['Etapa','Ciclo','Periodo','PesoDaEtapa'])
+
+    return combined_df, etapas_scores, etapas_info_total, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df
 
 # ----------------------------------------------------------------------
-# Integração com pipeline existente
+# Cálculo de pontuação final
 # ----------------------------------------------------------------------
-# Substituí as chamadas principais para passar as configurações do sidebar
-def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_pesos_df: pd.DataFrame, ciclo: str | None, periodos: list | None):
+@st.cache_data(show_spinner=False)
+def calculate_final_scores(df: pd.DataFrame, etapas: list, max_minutos_total: float):
+    df = df.copy()
+    for e in etapas:
+        if e not in df.columns:
+            df[e] = 0.0
+    df["Pontos_Totais"] = df[etapas].sum(axis=1)
+    max_p = max_minutos_total if max_minutos_total and max_minutos_total > 0 else (df["Pontos_Totais"].max() if not df.empty else 0)
+    df["Progresso"] = (df["Pontos_Totais"] / max_p) * 100.0 if max_p > 0 else 0.0
+    df["Rank"] = df["Pontos_Totais"].rank(method="dense", ascending=False).astype(int)
+    df.sort_values(["Pontos_Totais","Nome_Exibicao"], ascending=[False,True], inplace=True)
+    df = df.reset_index(drop=True)
+    return df
+
+# ----------------------------------------------------------------------
+# Helpers para somar pesos
+# ----------------------------------------------------------------------
+def get_circuit_total(periodos_pesos_df: pd.DataFrame, ciclo: str, selected_periodos: list | None):
+    if periodos_pesos_df is None or periodos_pesos_df.empty or ciclo is None:
+        return 0.0
+    df = periodos_pesos_df[periodos_pesos_df["Ciclo"].astype(str) == str(ciclo)].copy()
+    if df.empty:
+        return 0.0
+    if not selected_periodos or "Todos" in selected_periodos:
+        return float(df["PesoDaEtapa"].sum())
+    df = df[df["Periodo"].astype(str).isin([str(p) for p in selected_periodos])]
+    return float(df["PesoDaEtapa"].sum())
+
+def get_etapa_pesos_for_selection(etapas_pesos_df: pd.DataFrame, ciclo: str, selected_periodos: list | None):
+    if etapas_pesos_df is None or etapas_pesos_df.empty or ciclo is None:
+        return {}
+    df = etapas_pesos_df[etapas_pesos_df["Ciclo"].astype(str) == str(ciclo)].copy()
+    if df.empty:
+        return {}
+    if not selected_periodos or "Todos" in selected_periodos:
+        gp = df.groupby("Etapa", as_index=False)["PesoDaEtapa"].sum()
+    else:
+        gp = df[df["Periodo"].astype(str).isin([str(p) for p in selected_periodos])].groupby("Etapa", as_index=False)["PesoDaEtapa"].sum()
+    return {row["Etapa"]: float(row["PesoDaEtapa"]) for _, row in gp.iterrows()}
+
+# ----------------------------------------------------------------------
+# Filtragem e agregação
+# ----------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_pesos_df: pd.DataFrame, etapas_pesos_df: pd.DataFrame, ciclo: str | None, periodos: list | None):
     if ciclo is None or periodos is None:
         return pd.DataFrame()
     df = data_original[data_original["Ciclo"].astype(str) == str(ciclo)].copy()
@@ -339,18 +314,413 @@ def filter_and_score_multi(data_original: pd.DataFrame, etapas: list, periodos_p
     if not score_cols:
         return pd.DataFrame()
     max_minutos = get_circuit_total(periodos_pesos_df, ciclo, periodos)
-
+    
     aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum(min_count=1)
-
+    
     aggregated['Ciclo'] = ciclo
-    final = calculate_final_scores(aggregated, score_cols, max_minutos, normalize_by=st.session_state.get('gamification_normalize_by', None), milestones_pct=st.session_state.get('gamification_milestones', [25,50,75,100]))
+    final = calculate_final_scores(aggregated, score_cols, max_minutos)
     return final
 
-# ----------------------------------------------------------------------
-# NOTE: O restante do seu arquivo original (upload, warming cache, outras pages) permanece.
-# As funções principais foram adaptadas para manter compatibilidade e adicionar features.
-# ----------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def warm_cache_all_periods(data_original: pd.DataFrame, etapas: list, periodos_pesos_df: pd.DataFrame, periodos_df: pd.DataFrame):
+    if periodos_df.empty:
+        _ = calculate_final_scores(data_original, etapas, 0.0)
+        return 1
+    count = 0
+    for _, row in periodos_df.iterrows():
+        _ = filter_and_score_multi(data_original, etapas, periodos_pesos_df, None, str(row["Ciclo"]), [str(row["Periodo"])])
+        count += 1
+    return count
 
-# (As funções e rotinas abaixo — carregamento de dados, warm_cache_all_periods, executors, etc. — 
-#  permanecem do seu arquivo original e não foram explicitamente repetidas aqui para evitar duplicidade.
-#  A versão salva em /mnt/data contém o arquivo completo e pronto.)
+# ----------------------------------------------------------------------
+# Visual: pista (COM ÍCONE ANIMADO)
+# ----------------------------------------------------------------------
+def build_pista_fig(data: pd.DataFrame, max_minutos: float = None) -> go.Figure:
+    if data is None or data.empty:
+        return go.Figure()
+
+    CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/afdcbb50f1132d94c34ae85bb5dee657bef4eac2/assets/carro-corrida_anim.webp"
+
+    fig = go.Figure()
+    num_lojas = len(data)
+    y_positions = np.arange(num_lojas)
+
+    if max_minutos is None or max_minutos == 0:
+        max_minutos = data["Pontos_Totais"].max() if not data.empty else 100
+
+    def escala_visual(x):
+        return np.sqrt(max(x, 0))
+
+    max_vis = escala_visual(max_minutos)
+
+    for y in y_positions:
+        fig.add_shape(type="rect", x0=0, y0=y-0.45, x1=max_vis, y1=y+0.45,
+                      line=dict(width=0), fillcolor="#2C3E50", layer="below")
+
+    flag_width = max_vis * 0.04
+    num_cols = 4
+    square_size = flag_width / num_cols
+    
+    y_steps = np.arange(-0.5, num_lojas, square_size)
+    for i, y_start in enumerate(y_steps):
+        for j in range(num_cols):
+            x_start = max_vis
+            color = "white" if (i + j) % 2 == 0 else "black"
+            
+            fig.add_shape(
+                type="rect",
+                x0=x_start + (j * square_size),
+                y0=y_start,
+                x1=x_start + ((j+1) * square_size),
+                y1=y_start + square_size,
+                line=dict(width=0.5, color="black"),
+                fillcolor=color,
+                layer="above"
+            )
+
+    for y, row in zip(y_positions, data.itertuples()):
+        x_carro = escala_visual(row.Pontos_Totais)
+        
+        fig.add_layout_image(
+            dict(
+                source=CAR_ICON_URL,
+                xref="x", yref="y",
+                x=x_carro, y=y,
+                sizex=max_vis * 0.08, sizey=0.8,
+                xanchor="center", yanchor="middle",
+                layer="above"
+            )
+        )
+
+        fig.add_trace(go.Scatter(
+            x=[x_carro], y=[y-0.5],
+            mode="text", text=[row.Nome_Exibicao],
+            textfont=dict(size=9, color="rgba(255,255,255,0.9)"),
+            hoverinfo="skip", showlegend=False
+        ))
+        
+        minutos_faltantes = max(0, max_minutos - row.Pontos_Totais)
+        hover = (f"<b>{row.Nome_Exibicao}</b><br>"
+                 f"Minutos: {row.Pontos_Totais:.1f}<br>"
+                 f"Progresso: {row.Progresso:.1f}%<br>"
+                 f"Faltam: {minutos_faltantes:.1f} min<br>"
+                 f"Rank: #{int(row.Rank)}")
+        fig.add_trace(go.Scatter(
+            x=[x_carro], y=[y],
+            mode='markers',
+            marker=dict(color='rgba(0,0,0,0)', size=25),
+            hoverinfo='text', hovertext=hover,
+            showlegend=False
+        ))
+
+    fig.update_xaxes(
+        range=[0, max_vis * 1.05], 
+        title_text="Minutos percorridos (escala visual compactada) →",
+        fixedrange=True
+    )
+    fig.update_yaxes(
+        showgrid=False, zeroline=False, 
+        tickmode="array", tickvals=y_positions, ticktext=[],
+        fixedrange=True
+    )
+    
+    fig.update_layout(
+        height=250 + 70*num_lojas, margin=dict(l=10, r=10, t=80, b=40),
+        plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)"
+    )
+    return fig
+
+
+# ----------------------------------------------------------------------
+# Lógica Principal do Aplicativo (renders)
+# ----------------------------------------------------------------------
+def render_header_and_periodo(campaign_name: str, periodo_inicio: str | None, periodo_fim: str | None):
+    st.markdown("<div class='app-header'>", unsafe_allow_html=True)
+    st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
+    if periodo_inicio and periodo_fim:
+        if periodo_inicio == periodo_fim:
+            st.markdown(f"<p>{periodo_inicio} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<p>{periodo_inicio} → {periodo_fim} — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p>Período não definido — Painel de acompanhamento do Circuito</p>", unsafe_allow_html=True)
+    st.markdown("---")
+
+def render_geral_page():
+    st.header("Visão Geral")
+    df_final = st.session_state.get('df_final')
+    if df_final is None or df_final.empty:
+        st.warning("Sem dados para exibir com a seleção atual.")
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total de Lojas", len(df_final))
+    with col2:
+        top1 = df_final[df_final["Progresso"] >= 100.0]
+        if not top1.empty:
+            st.metric("Ganhador(es) do Bônus Ouro + Folga", f"{top1['Nome_Exibicao'].iloc[0]}")
+        else:
+            st.metric("Líder Atual", f"{df_final['Nome_Exibicao'].iloc[0]}")
+
+    render_podio_table(df_final)
+
+    st.markdown("### Pista de Corrida do Circuito")
+    max_minutos = st.session_state.get('max_minutos_circuito', 0.0)
+    fig_pista = build_pista_fig(df_final, max_minutos=max_minutos)
+    st.plotly_chart(fig_pista, use_container_width=True)
+
+    st.markdown("### Classificação Completa")
+    df_classificacao = df_final.copy()
+    
+    df_classificacao['Faltam (min)'] = (max_minutos - df_classificacao['Pontos_Totais']).clip(lower=0)
+    
+    etapa_columns = [col for col in df_classificacao.columns if col.endswith('_Score')]
+
+    rename_dict = {col: f"{col.replace('_Score', '')} (min)" for col in etapa_columns}
+    df_classificacao.rename(columns=rename_dict, inplace=True)
+    
+    final_columns = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Pontos_Totais', 'Progresso', 'Faltam (min)']
+    df_display = df_classificacao[final_columns].copy()
+
+    for col in list(rename_dict.values()):
+        df_display[col] = df_display[col].apply(lambda x: f"{x:.1f} min" if pd.notna(x) else "Ainda sem nota imputada")
+
+    df_display['Pontos_Totais'] = df_display['Pontos_Totais'].apply(lambda x: f"{x:.1f} min")
+    df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
+    df_display['Faltam (min)'] = df_display['Faltam (min)'].apply(lambda x: f"{x:.1f} min")
+
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+def render_loja_page():
+    st.header("Visão por Loja")
+    df_final = st.session_state.get('df_final')
+    if df_final is None or df_final.empty:
+        st.warning("Selecione um Ciclo e Período no menu lateral.")
+        return
+
+    loja_options = df_final["Nome_Exibicao"].unique().tolist()
+    loja_sel = st.selectbox("Selecione a Loja:", sorted(loja_options))
+    st.session_state.loja_sb_ui = loja_sel
+
+    loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
+    st.markdown(f"**Loja Selecionada:** {loja_row['Nome_Exibicao']}")
+
+    max_minutos = st.session_state.get('max_minutos_circuito', 0.0)
+    minutos_faltantes = max(0, max_minutos - loja_row['Pontos_Totais'])
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Pontos Totais", f"{loja_row['Pontos_Totais']:.1f} min")
+    with col2:
+        st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
+    with col3:
+        st.metric("Rank", f"#{int(loja_row['Rank'])}")
+    with col4:
+        st.metric("Minutos Faltantes", f"{minutos_faltantes:.1f} min")
+    
+    st.markdown("---")
+
+    # --- NOVA LÓGICA DE INSIGHTS E GRÁFICO DE RADAR ---
+    pesos_etapas = get_etapa_pesos_for_selection(st.session_state.etapas_pesos_df, st.session_state.ciclo, st.session_state.periodos)
+    
+    etapas_data = []
+    for etapa_col, peso in pesos_etapas.items():
+        if peso > 0:  # Apenas incluir etapas que têm peso no circuito
+            etapa_name = etapa_col.replace('_Score', '')
+            score_atual = loja_row.get(etapa_col, 0)
+            gap = peso - score_atual
+            etapas_data.append({
+                'Etapa': etapa_name,
+                'Pontuação Atual': score_atual,
+                'Pontuação Máxima': peso,
+                'Gap': gap
+            })
+
+    if not etapas_data:
+        st.info("Não há dados de etapas para exibir para a seleção atual.")
+        return
+        
+    df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap', ascending=False).reset_index(drop=True)
+
+    col_insight, col_chart = st.columns([1, 2])
+
+    with col_insight:
+        st.subheader("Pontos de Melhoria")
+        st.markdown("Principais oportunidades para ganhar minutos e avançar no circuito:")
+        
+        top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
+
+        if top_melhorias.empty:
+            st.success("🎉 Parabéns! A loja atingiu a pontuação máxima em todas as etapas!")
+        else:
+            for _, row in top_melhorias.iterrows():
+                st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{row['Gap']:.1f}** minutos.")
+
+    with col_chart:
+        st.subheader("Desempenho por Etapa")
+        fig = go.Figure()
+
+        # Trace da Pontuação Máxima (linha externa)
+        fig.add_trace(go.Scatterpolar(
+            r=df_melhoria['Pontuação Máxima'],
+            theta=df_melhoria['Etapa'],
+            mode='lines',
+            line=dict(color='rgba(255, 255, 255, 0.4)'),
+            name='Pontuação Máxima'
+        ))
+
+        # Trace da Pontuação Atual (área preenchida)
+        fig.add_trace(go.Scatterpolar(
+            r=df_melhoria['Pontuação Atual'],
+            theta=df_melhoria['Etapa'],
+            fill='toself',
+            fillcolor='rgba(0, 176, 246, 0.4)',
+            line=dict(color='rgba(0, 176, 246, 1)'),
+            name='Pontuação Atual'
+        ))
+
+        fig.update_layout(
+            polar=dict(
+                bgcolor="rgba(0,0,0,0)",
+                radialaxis=dict(visible=True, range=[0, df_melhoria['Pontuação Máxima'].max() * 1.1]),
+                angularaxis=dict(
+                    tickfont=dict(size=10),
+                    rotation=90,
+                    direction="clockwise"
+                )
+            ),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="white",
+            margin=dict(l=40, r=40, t=80, b=40)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+def render_etapa_page():
+    st.header("Visão por Etapa")
+    df_final = st.session_state.get('df_final')
+    if df_final is None or df_final.empty:
+        st.warning("Selecione um Ciclo e Período no menu lateral.")
+        return
+
+    etapa_options = [c.replace('_Score', '') for c in st.session_state.etapas_scores]
+    etapa_sel = st.selectbox("Selecione a Etapa:", sorted(etapa_options))
+    st.session_state.etapa_selected = etapa_sel
+
+    col_name = f"{etapa_sel}_Score"
+
+    if col_name not in df_final.columns:
+        st.warning(f"Dados para a etapa '{etapa_sel}' não encontrados.")
+        return
+
+    df_etapa = df_final[['Nome_Exibicao', col_name]].copy().rename(columns={col_name:"Pontuação"}).sort_values("Pontuação", ascending=False)
+    df_etapa.dropna(subset=['Pontuação'], inplace=True)
+    
+    top10 = df_etapa.head(10)
+    st.subheader(f"Top 10 da Etapa '{etapa_sel}'")
+    st.dataframe(top10, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+# ----------------------------------------------------------------------
+# Inicializações de sessão
+# ----------------------------------------------------------------------
+if 'page' not in st.session_state: st.session_state.page = "Geral"
+if 'ciclo' not in st.session_state: st.session_state.ciclo = None
+if 'periodos' not in st.session_state: st.session_state.periodos = []
+if 'data_original' not in st.session_state: st.session_state.data_original = pd.DataFrame()
+if 'etapas_scores' not in st.session_state: st.session_state.etapas_scores = []
+if 'etapas_info' not in st.session_state: st.session_state.etapas_info = {}
+if 'periodos_df' not in st.session_state: st.session_state.periodos_df = pd.DataFrame()
+if 'periodos_formatados' not in st.session_state: st.session_state.periodos_formatados = []
+if 'df_final' not in st.session_state: st.session_state.df_final = pd.DataFrame()
+if 'etapa_selected' not in st.session_state: st.session_state.etapa_selected = None
+if 'loja_sb_ui' not in st.session_state: st.session_state.loja_sb_ui = None
+if 'periodos_pesos_df' not in st.session_state: st.session_state.periodos_pesos_df = pd.DataFrame()
+if 'etapas_pesos_df' not in st.session_state: st.session_state.etapas_pesos_df = pd.DataFrame()
+if 'max_minutos_circuito' not in st.session_state: st.session_state.max_minutos_circuito = 0.0
+
+# ----------------------------------------------------------------------
+# Carregar dados (GitHub) e processar
+# ----------------------------------------------------------------------
+with st.spinner("Carregando dados do GitHub..."):
+    all_sheets = get_data_from_github()
+if not all_sheets:
+    st.error("Não foi possível carregar os dados do GitHub.")
+    st.stop()
+
+with st.spinner("Processando dados..."):
+    data, etapas_scores, etapas_info, periodos_df, periodos_formatados, periodos_pesos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
+
+st.session_state.data_original = data
+st.session_state.etapas_scores = etapas_scores
+st.session_state.etapas_info = etapas_info
+st.session_state.periodos_df = periodos_df
+st.session_state.periodos_formatados = periodos_formatados
+st.session_state.periodos_pesos_df = periodos_pesos_df
+st.session_state.etapas_pesos_df = etapas_pesos_df
+_ = warm_cache_all_periods(data, etapas_scores, periodos_pesos_df, periodos_df)
+
+# ----------------------------------------------------------------------
+# Sidebar (filtros e navegação)
+# ----------------------------------------------------------------------
+with st.sidebar:
+    st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
+    st.markdown("---")
+    st.markdown("### Seleção de Ciclo e Período")
+    periodos_df = st.session_state.get('periodos_df', pd.DataFrame())
+    ciclos_unicos = periodos_df["Ciclo"].dropna().astype(str).unique().tolist() if not periodos_df.empty else []
+    if not ciclos_unicos:
+        st.error("Nenhum ciclo disponível nos dados.")
+    else:
+        ciclo_selecionado = st.selectbox("Selecione o Ciclo", sorted(ciclos_unicos), index=len(ciclos_unicos)-1)
+        periodos_ciclo = periodos_df[periodos_df["Ciclo"].astype(str) == str(ciclo_selecionado)]["Periodo"].dropna().astype(str).unique().tolist()
+        periodos_opcoes = ["Todos"] + list(periodos_ciclo)
+        periodos_selecionados = st.multiselect("Selecione os Períodos", options=periodos_opcoes, default=["Todos"])
+        st.session_state.ciclo = ciclo_selecionado
+        st.session_state.periodos = periodos_selecionados
+
+    st.markdown("---")
+    st.markdown("### Navegação")
+    if st.button("Visão Geral", use_container_width=True): st.session_state.page = "Geral"
+    if st.button("Visão por Loja", use_container_width=True): st.session_state.page = "Loja"
+    if st.button("Visão por Etapa", use_container_width=True): st.session_state.page = "Etapa"
+
+# ----------------------------------------------------------------------
+# Cálculo conforme seleção
+# ----------------------------------------------------------------------
+if st.session_state.ciclo and st.session_state.periodos is not None:
+    df_to_render = filter_and_score_multi(
+        st.session_state.data_original,
+        st.session_state.etapas_scores,
+        st.session_state.periodos_pesos_df,
+        st.session_state.etapas_pesos_df,
+        st.session_state.ciclo,
+        st.session_state.periodos
+    )
+    st.session_state.df_final = pd.DataFrame() if (df_to_render is None or df_to_render.empty) else df_to_render
+    
+    st.session_state.max_minutos_circuito = get_circuit_total(
+        st.session_state.periodos_pesos_df,
+        st.session_state.ciclo,
+        st.session_state.periodos
+    )
+else:
+    st.session_state.df_final = pd.DataFrame()
+    st.session_state.max_minutos_circuito = 0.0
+
+# ----------------------------------------------------------------------
+# Header & Render de páginas
+# ----------------------------------------------------------------------
+periodo_inicio, periodo_fim = get_period_range(st.session_state.get('ciclo'), st.session_state.get('periodos', []), st.session_state.get('periodos_df', pd.DataFrame()))
+render_header_and_periodo("Circuito MiniPreço", periodo_inicio, periodo_fim)
+
+if st.session_state.page == "Geral":
+    render_geral_page()
+elif st.session_state.page == "Loja":
+    render_loja_page()
+elif st.session_state.page == "Etapa":
+    render_etapa_page()
