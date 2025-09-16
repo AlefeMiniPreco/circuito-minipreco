@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM PÓDIO DETALHADO E NOVA NOMENCLATURA
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE ATTRIBUTE_ERROR E PÁGINAS RESTAURADAS
 
 import numpy as np
 import pandas as pd
@@ -88,7 +88,6 @@ def get_data_from_github():
         return {}
 
 def format_hours_and_minutes(hours_float: float):
-    """Formata um float de horas para o formato Xh Ymin."""
     if pd.isna(hours_float) or hours_float < 0: return "0h 00min"
     hours = math.floor(hours_float)
     minutes = round((hours_float - hours) * 60)
@@ -103,8 +102,7 @@ def get_race_duration_hours(ciclo: str):
 
 @st.cache_data(show_spinner="Processando dados...")
 def load_and_prepare_data(all_sheets: dict):
-    # (Função mantida como na versão anterior, sem alterações)
-    all_data = []
+    all_data, pesos_records = [], []
     for sheet_name in ETAPA_SHEETS:
         if sheet_name in all_sheets:
             try:
@@ -121,8 +119,13 @@ def load_and_prepare_data(all_sheets: dict):
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
                 df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
                 all_data.append(df_consolidado)
+                if 'PesoDaEtapa' in df_etapa.columns and sheet_name not in JOKER_ETAPAS:
+                    pesos_gp = df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index()
+                    pesos_gp['Etapa'] = f'{sheet_name}_Score'
+                    for _, r in pesos_gp.iterrows():
+                        pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoMaximo': float(r['PesoDaEtapa'])})
             except Exception: continue
-    if not all_data: return pd.DataFrame(), [], pd.DataFrame()
+    if not all_data: return pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
     df_merged = pd.DataFrame(columns=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'])
     unique_identifiers = ['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo']
     for df in all_data:
@@ -136,7 +139,8 @@ def load_and_prepare_data(all_sheets: dict):
             df_merged[score_col] = df_merged.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
     etapas_scores_cols = [c for c in df_merged.columns if c.endswith('_Score')]
     periodos_df = df_merged[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
-    return df_merged, etapas_scores_cols, periodos_df
+    etapas_pesos_df = pd.DataFrame(pesos_records)
+    return df_merged, etapas_scores_cols, periodos_df, etapas_pesos_df
 
 @st.cache_data(show_spinner=False)
 def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_total_horas: float, baseline_horas: float):
@@ -186,22 +190,19 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
     st.markdown("### Pódio Atual")
     top3 = df_final.head(3)
     cols = st.columns(3)
-    for i in range(3):
-        if i < len(top3):
-            row = top3.loc[i]
-            with cols[i]:
-                st.markdown(
-                    f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
-                    f"<h3>{i+1}º — {row.Nome_Exibicao}</h3>"
-                    f"<h2>{format_hours_and_minutes(row.Posicao_Horas)}</h2>"
-                    f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row.Impulso_Total_Min / 60)} de Impulso)</p>"
-                    f"<p class='progress-text'>Progresso: {row.Progresso:.1f}%</p>"
-                    f"<p class='remaining-text'>Faltam: {format_hours_and_minutes(row.Tempo_Faltante_Horas)}</p>"
-                    f"</div>", unsafe_allow_html=True
-                )
+    for i, row in top3.iterrows():
+        with cols[i]:
+            st.markdown(
+                f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
+                f"<h3>{row['Rank']}º — {row['Nome_Exibicao']}</h3>"
+                f"<h2>{format_hours_and_minutes(row['Posicao_Horas'])}</h2>"
+                f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row['Impulso_Total_Min'] / 60)} de Impulso)</p>"
+                f"<p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>"
+                f"<p class='remaining-text'>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</p>"
+                f"</div>", unsafe_allow_html=True
+            )
 
 def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
-    # (Função mantida como na versão anterior, sem alterações)
     if data is None or data.empty: return go.Figure()
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
     fig = go.Figure()
@@ -217,10 +218,10 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
     for i, row in data.iterrows():
-        hover_text = (f"<b>{row.Nome_Exibicao}</b><br>Posição: {row.Posicao_Horas:.2f}h<br>Progresso: {row.Progresso:.1f}%<br>Impulso: {format_hours_and_minutes(row.Impulso_Total_Min / 60)}<br>Faltam: {format_hours_and_minutes(row.Tempo_Faltante_Horas)}<br>Rank: #{row.Rank}")
-        fig.add_trace(go.Scatter(x=[row.Posicao_Horas], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
-        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row.Posicao_Horas, y=i, sizex=max(2, duracao_total_horas / 12), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
-        fig.add_trace(go.Scatter(x=[row.Posicao_Horas], y=[i-0.55], mode="text", text=[row.Nome_Exibicao], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
+        hover_text = (f"<b>{row['Nome_Exibicao']}</b><br>Posição: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Impulso_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
+        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
+        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(2, duracao_total_horas / 12), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
+        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i-0.55], mode="text", text=[row['Nome_Exibicao']], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
@@ -299,8 +300,8 @@ with st.spinner("Carregando base de dados..."):
     all_sheets = get_data_from_github()
 if not all_sheets: st.stop()
 
-data, etapas_scores, periodos_df = load_and_prepare_data(all_sheets)
-st.session_state.update({'data_original': data, 'etapas_scores_cols': etapas_scores, 'periodos_df': periodos_df})
+data, etapas_scores, periodos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
+st.session_state.update({'data_original': data, 'etapas_scores_cols': etapas_scores, 'periodos_df': periodos_df, 'etapas_pesos_df': etapas_pesos_df})
 
 with st.sidebar:
     st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
