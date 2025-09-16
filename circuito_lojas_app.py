@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE ATTRIBUTE_ERROR E PÁGINAS RESTAURADAS
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE KEY_ERROR E PÁGINAS RESTAURADAS
 
 import numpy as np
 import pandas as pd
@@ -40,19 +40,15 @@ JOKER_ETAPAS = ["Meta"]
 # ----------------------------------------------------------------------
 st.markdown("""
 <style>
-/* Estilos Gerais */
+/* Estilos mantidos da versão anterior */
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
 .app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
 .app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
-
-/* Estilos do Pódio */
 .podio-card h2 { font-size: 2em; margin: 8px 0 2px 0; }
 .podio-card h3 { font-size: 1.1em; margin: 0; }
 .podio-card p.breakdown-text { margin: 0 0 8px 0; font-size: 0.8em; opacity: 0.7; }
 .podio-card p.progress-text { margin: 4px 0 0 0; font-size:0.9em; opacity: 0.9;}
 .podio-card p.remaining-text { margin: 2px 0 0 0; font-size:0.8em; opacity: 0.7;}
-
-/* Estilos da Tabela de Classificação */
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
@@ -148,8 +144,8 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
     for e in etapas_scores_cols:
         if e not in df_copy.columns: df_copy[e] = 0.0
     score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
-    df_copy["Impulso_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1)
-    df_copy["Posicao_Horas"] = baseline_horas + (df_copy["Impulso_Total_Min"] / 60.0)
+    df_copy["Boost_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1) # Nome interno
+    df_copy["Posicao_Horas"] = baseline_horas + (df_copy["Boost_Total_Min"] / 60.0)
     if duracao_total_horas > 0:
         df_copy["Progresso"] = (df_copy["Posicao_Horas"] / duracao_total_horas) * 100.0
     else:
@@ -196,7 +192,7 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
                 f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
                 f"<h3>{row['Rank']}º — {row['Nome_Exibicao']}</h3>"
                 f"<h2>{format_hours_and_minutes(row['Posicao_Horas'])}</h2>"
-                f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row['Impulso_Total_Min'] / 60)} de Impulso)</p>"
+                f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Impulso)</p>"
                 f"<p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>"
                 f"<p class='remaining-text'>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</p>"
                 f"</div>", unsafe_allow_html=True
@@ -218,7 +214,7 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
     for i, row in data.iterrows():
-        hover_text = (f"<b>{row['Nome_Exibicao']}</b><br>Posição: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Impulso_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
+        hover_text = (f"<b>{row['Nome_Exibicao']}</b><br>Posição: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
         fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
         fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(2, duracao_total_horas / 12), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
         fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i-0.55], mode="text", text=[row['Nome_Exibicao']], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
@@ -272,7 +268,7 @@ def render_geral_page():
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
-        html.append(f"<td>+{format_hours_and_minutes(row['Impulso_Total_Min'] / 60)}</td>")
+        html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
         html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         html.append(f"<td>{prog_bar}</td>")
         if show_details:
@@ -285,11 +281,76 @@ def render_geral_page():
 
 def render_loja_page():
     st.header("Visão por Loja")
-    st.info("Página em desenvolvimento.")
+    df_final = st.session_state.get('df_final')
+    etapas_pesos_df = st.session_state.get('etapas_pesos_df', pd.DataFrame())
+
+    if df_final is None or df_final.empty:
+        st.warning("Selecione um Ciclo para ver os detalhes da loja.")
+        return
+
+    loja_options = sorted(df_final["Nome_Exibicao"].unique().tolist())
+    loja_sel = st.selectbox("Selecione a Loja:", loja_options)
+
+    if loja_sel:
+        loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1: st.metric("Posição na Pista", f"{loja_row['Posicao_Horas']:.2f}h")
+        with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row['Boost_Total_Min'] / 60)}")
+        with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
+        with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
+        
+        st.markdown("---")
+        
+        ciclo = st.session_state.ciclo
+        if not etapas_pesos_df.empty:
+            df_pesos_ciclo = etapas_pesos_df[etapas_pesos_df['Ciclo'] == ciclo]
+            pesos_etapas = df_pesos_ciclo.groupby('Etapa')['PesoMaximo'].sum().to_dict()
+            etapas_data = []
+            for etapa_col in st.session_state.etapas_scores_cols:
+                peso_max = pesos_etapas.get(etapa_col, 0)
+                if peso_max > 0:
+                    etapa_name, score_atual = etapa_col.replace('_Score', ''), loja_row.get(etapa_col, 0)
+                    etapas_data.append({'Etapa': etapa_name, 'Impulso Atual': score_atual, 'Impulso Máximo': peso_max, 'Gap': peso_max - score_atual})
+
+            if etapas_data:
+                df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap', ascending=False, ignore_index=True)
+                col_insight, col_chart = st.columns([1, 2])
+                with col_insight:
+                    st.subheader("Pontos de Melhoria")
+                    st.markdown("Oportunidades para ganhar impulso e avançar no circuito:")
+                    top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
+                    if top_melhorias.empty: st.success("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!")
+                    else:
+                        for _, row in top_melhorias.iterrows(): st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{format_hours_and_minutes(row['Gap'] / 60)}**.")
+                with col_chart:
+                    st.subheader("Desempenho por Etapa")
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Máximo'], theta=df_melhoria['Etapa'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)'), name='Impulso Máximo'))
+                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Atual'], theta=df_melhoria['Etapa'], fill='toself', fillcolor='rgba(0, 176, 246, 0.4)', line=dict(color='rgba(0, 176, 246, 1)'), name='Impulso Atual'))
+                    fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Impulso Máximo'].max() * 1.1 if not df_melhoria.empty else 1])), showlegend=True, paper_bgcolor="rgba(0,0,0,0)", font_color="white", margin=dict(l=40, r=40, t=80, b=40))
+                    st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
     st.header("Visão por Etapa")
-    st.info("Página em desenvolvimento.")
+    df_final = st.session_state.get('df_final')
+    etapas_scores_cols = st.session_state.get('etapas_scores_cols', [])
+
+    if df_final is None or df_final.empty:
+        st.warning("Selecione um Ciclo para ver os detalhes da etapa.")
+        return
+
+    etapa_options = [c.replace('_Score', '') for c in etapas_scores_cols if c in df_final.columns and df_final[c].sum() > 0]
+    etapa_sel = st.selectbox("Selecione a Etapa:", sorted(etapa_options))
+
+    if etapa_sel:
+        col_name = f"{etapa_sel}_Score"
+        df_etapa = df_final[['Nome_Exibicao', col_name, 'Rank']].copy()
+        df_etapa.rename(columns={col_name: "Impulso na Etapa (min)"}, inplace=True)
+        df_etapa.sort_values("Impulso na Etapa (min)", ascending=False, inplace=True)
+        
+        st.subheader(f"Ranking da Etapa: {etapa_sel}")
+        st.dataframe(df_etapa.head(10), use_container_width=True, hide_index=True)
 
 # ----------------------------------------------------------------------
 # Estrutura Principal do App
