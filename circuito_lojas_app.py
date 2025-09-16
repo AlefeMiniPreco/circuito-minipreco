@@ -206,7 +206,7 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
                 f"</div>", unsafe_allow_html=True
             )
 
-def build_pista_fig(data):
+def build_pista_fig(data, duracao_horas=60):
     # Cria a figura
     fig = go.Figure()
 
@@ -216,13 +216,13 @@ def build_pista_fig(data):
             type="rect",
             x0=0,
             y0=i - 0.4,
-            x1=60,
+            x1=duracao_horas,   # ← agora usa o parâmetro
             y1=i + 0.4,
             fillcolor="gray" if i % 2 == 0 else "dimgray",
             line=dict(width=0)
         )
 
-    # Hover text (passar o mouse mostra mais infos)
+    # Hover text
     hover_texts = [
         f"Lugar: {row['Posicao']}<br>"
         f"Loja: {row['Nome_Exibicao']}<br>"
@@ -234,7 +234,7 @@ def build_pista_fig(data):
         for _, row in data.iterrows()
     ]
 
-    # Adiciona os carrinhos (imagens)
+    # Adiciona os carrinhos
     for i, (x, img) in enumerate(zip(data['Posicao_Horas'], data['Carro_Imagem'])):
         fig.add_layout_image(
             dict(
@@ -251,33 +251,32 @@ def build_pista_fig(data):
             )
         )
 
-    # Adiciona os nomes das lojas deslocados para baixo
-    y_text = data.index - 0.35  # deslocamento vertical
+    # Adiciona os nomes das lojas abaixo dos carrinhos
+    y_text = data.index - 0.35
     fig.add_trace(go.Scatter(
         x=data['Posicao_Horas'],
         y=y_text,
         mode='text',
         text=data['Nome_Exibicao'],
-        textposition="top center",  # como já deslocamos, usamos 'top'
+        textposition="top center",
         textfont=dict(color='white', size=11),
         hoverinfo='text',
         hovertext=hover_texts,
         showlegend=False
     ))
 
-    # Configurações do layout
+    # Layout
     fig.update_layout(
         plot_bgcolor="black",
         paper_bgcolor="black",
-        xaxis=dict(showgrid=False, zeroline=False, visible=False),
+        xaxis=dict(showgrid=False, zeroline=False, visible=False, range=[0, duracao_horas]),
         yaxis=dict(showgrid=False, zeroline=False, visible=False, range=[-1, len(data)]),
         margin=dict(l=0, r=0, t=0, b=0),
-        height=60 * len(data),  # altura proporcional ao nº de lojas
+        height=60 * len(data),
     )
 
     return fig
-
-
+    
 def render_geral_page():
     st.header("Visão Geral da Corrida")
     df_final = st.session_state.get('df_final')
