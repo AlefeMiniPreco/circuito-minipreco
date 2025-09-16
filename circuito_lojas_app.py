@@ -206,8 +206,15 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
                 f"</div>", unsafe_allow_html=True
             )
 
-def build_pista_fig(data, duracao_horas=60):
-    # Cria a figura
+def build_pista_fig(data, duracao_horas=60, offset_text=-0.35):
+    """
+    Constrói a pista de corrida com carrinhos e nomes das lojas.
+
+    Params:
+        data (pd.DataFrame): dataframe final com as colunas de cálculo.
+        duracao_horas (int): extensão horizontal da pista.
+        offset_text (float): deslocamento vertical dos nomes das lojas.
+    """
     fig = go.Figure()
 
     # Adiciona as faixas da pista
@@ -216,26 +223,26 @@ def build_pista_fig(data, duracao_horas=60):
             type="rect",
             x0=0,
             y0=i - 0.4,
-            x1=duracao_horas,   # ← agora usa o parâmetro
+            x1=duracao_horas,
             y1=i + 0.4,
             fillcolor="gray" if i % 2 == 0 else "dimgray",
             line=dict(width=0)
         )
 
-    # Hover text
+    # Hover text seguro (usa .get para evitar KeyError)
     hover_texts = [
-        f"Lugar: {row['Posicao']}<br>"
-        f"Loja: {row['Nome_Exibicao']}<br>"
-        f"Pontos: {row['Pontuacao']:.0f}<br>"
-        f"Meta: {row['Meta']:.0f}<br>"
-        f"Realizado: {row['Realizado']:.0f}<br>"
-        f"Cumprimento: {row['Cumprimento_Meta']:.1%}<br>"
-        f"Participação: {row['Participacao']:.1%}"
-        for _, row in data.iterrows()
+        f"Lugar: {row.get('Posicao', i+1)}<br>"
+        f"Loja: {row.get('Nome_Exibicao', '')}<br>"
+        f"Pontos: {row.get('Pontuacao', 0):.0f}<br>"
+        f"Meta: {row.get('Meta', 0):.0f}<br>"
+        f"Realizado: {row.get('Realizado', 0):.0f}<br>"
+        f"Cumprimento: {row.get('Cumprimento_Meta', 0):.1%}<br>"
+        f"Participação: {row.get('Participacao', 0):.1%}"
+        for i, (_, row) in enumerate(data.iterrows())
     ]
 
-    # Adiciona os carrinhos
-    for i, (x, img) in enumerate(zip(data['Posicao_Horas'], data['Carro_Imagem'])):
+    # Adiciona os carrinhos (imagens)
+    for i, (x, img) in enumerate(zip(data.get('Posicao_Horas', []), data.get('Carro_Imagem', []))):
         fig.add_layout_image(
             dict(
                 source=img,
@@ -252,12 +259,12 @@ def build_pista_fig(data, duracao_horas=60):
         )
 
     # Adiciona os nomes das lojas abaixo dos carrinhos
-    y_text = data.index - 0.35
+    y_text = data.index + offset_text
     fig.add_trace(go.Scatter(
-        x=data['Posicao_Horas'],
+        x=data.get('Posicao_Horas', [0]*len(data)),
         y=y_text,
         mode='text',
-        text=data['Nome_Exibicao'],
+        text=data.get('Nome_Exibicao', ['']*len(data)),
         textposition="top center",
         textfont=dict(color='white', size=11),
         hoverinfo='text',
