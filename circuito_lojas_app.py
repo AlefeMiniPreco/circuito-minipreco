@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM OTIMIZAÇÃO MOBILE PARA PISTA DE CORRIDA
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE KEY_ERROR NA PÁGINA DE LOJA
 
 import numpy as np
 import pandas as pd
@@ -187,7 +187,7 @@ def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: floa
     st.markdown("<div class='app-header'>", unsafe_allow_html=True)
     st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
     baseline_str = f"| Avanço Base (Dia Atual): <b>{baseline_horas:.0f} horas</b>" if baseline_horas > 0 else ""
-    st.markdown(f"<p>{ciclo} | Duração: <b>{duracao_horas:.0f} horas</b> {baseline_str}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p>Ciclo: <b>{ciclo}</b> | Duração da corrida: <b>{duracao_horas:.0f} horas</b> {baseline_str}</p>", unsafe_allow_html=True)
     st.markdown("---")
 
 def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
@@ -223,13 +223,9 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
     for i, row in data.iterrows():
         hover_text = (f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
-        # Marcador de Posição Exata
         fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='cyan', size=8), hoverinfo='none', showlegend=False))
-        # Ícone do Carro
-        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.5, duracao_total_horas / 20), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
-        # Texto Flutuante e Nome da Loja
-        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
-        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i+0.45], mode="text", text=row['Nome_Exibicao'], textfont=dict(size=10, color="white"), showlegend=False, textposition="bottom center"))
+        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.2, duracao_total_horas / 25), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
+        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i-0.55], mode="text", text=[row['Nome_Exibicao']], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
@@ -271,7 +267,7 @@ def render_geral_page():
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
-        html.append(f"<td>{row['Avanço_Horas']:.2f}h</td>")
+        html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         html.append(f"<td>{prog_bar}</td>")
         if show_details:
             for col in score_cols_with_data:
@@ -292,7 +288,8 @@ def render_loja_page():
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Avanço na Pista", f"{loja_row['Avanço_Horas']:.2f}h")
+        # *** CORREÇÃO DO KEYERROR AQUI ***
+        with col1: st.metric("Avanço na Pista", f"{loja_row['Posicao_Horas']:.2f}h")
         with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row['Boost_Total_Min'] / 60)}")
         with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
         with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
