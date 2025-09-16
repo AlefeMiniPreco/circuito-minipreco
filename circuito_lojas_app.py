@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM FORMATAÇÃO DE TEMPO (H/MIN) E PISTA REESCALONADA
+# circuito_lojas_app.py — VERSÃO FINAL COM CORREÇÃO DE ATTRIBUTE_ERROR
 
 import numpy as np
 import pandas as pd
@@ -17,23 +17,16 @@ from io import BytesIO
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="🏎️", layout="wide", initial_sidebar_state="collapsed")
 
 # ----------------------------------------------------------------------
-# Fonte de dados: GitHub (raw)
+# Fonte de dados e Constantes Globais
 # ----------------------------------------------------------------------
 GITHUB_FILE_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/BaseCircuito.xlsx"
 
-@st.cache_data(ttl=3600) # Cache por 1 hora
-def get_data_from_github():
-    """Baixa o arquivo BaseCircuito.xlsx direto do GitHub e retorna como dict de DataFrames."""
-    try:
-        df = pd.read_excel(GITHUB_FILE_URL, sheet_name=None, engine="openpyxl")
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados do GitHub: {e}")
-        return {}
+# *** CORREÇÃO: Dicionário de meses agora é uma constante global ***
+MONTH_MAP = {
+    'Janeiro': 31, 'Fevereiro': 28, 'Março': 31, 'Abril': 30, 'Maio': 31, 'Junho': 30,
+    'Julho': 31, 'Agosto': 31, 'Setembro': 30, 'Outubro': 31, 'Novembro': 30, 'Dezembro': 31
+}
 
-# ----------------------------------------------------------------------
-# Constantes do arquivo
-# ----------------------------------------------------------------------
 ETAPA_SHEETS = [
     "PlanoVoo", "ProjetoFast", "PontoPartida", "AcoesComerciais", "PainelVendas",
     "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
@@ -75,10 +68,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Utilitários
+# Funções Utilitárias
 # ----------------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def get_data_from_github():
+    try:
+        df = pd.read_excel(GITHUB_FILE_URL, sheet_name=None, engine="openpyxl")
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar os dados do GitHub: {e}")
+        return {}
+
 def format_minutes(minutes: float):
-    """Converte minutos para um formato 'Xh Ymin' se for >= 60."""
+    if pd.isna(minutes): return "-"
     if minutes < 60:
         return f"{minutes:.1f} min"
     else:
@@ -90,24 +92,111 @@ def get_period_range(ciclo: str, selected_periods: list, periodos_df: pd.DataFra
     if not ciclo or periodos_df is None or periodos_df.empty: return None, None
     ciclo_df = periodos_df[periodos_df["Ciclo"].astype(str) == str(ciclo)].reset_index(drop=True)
     if ciclo_df.empty: return None, None
-    ordered_periods = ciclo_df["Periodo"].astype(str).tolist()
+    ordered_periods = sorted(ciclo_df["Periodo"].astype(str).unique())
     if not selected_periods or "Todos" in selected_periods: return ordered_periods[0], ordered_periods[-1]
     selected_in_order = [p for p in ordered_periods if p in selected_periods]
     if not selected_in_order: return None, None
     return selected_in_order[0], selected_in_order[-1]
 
 def get_race_duration_hours(ciclo: str):
-    month_map = {
-        'Janeiro': 31, 'Fevereiro': 28, 'Março': 31, 'Abril': 30, 'Maio': 31, 'Junho': 30,
-        'Julho': 31, 'Agosto': 31, 'Setembro': 30, 'Outubro': 31, 'Novembro': 30, 'Dezembro': 31
-    }
+    # Usa uma cópia do mapa global para poder alterar com segurança para o ano bissexto
+    local_month_map = MONTH_MAP.copy()
     ano_atual = datetime.now().year
     if (ano_atual % 4 == 0 and ano_atual % 100 != 0) or (ano_atual % 400 == 0):
-        month_map['Fevereiro'] = 29
-    return month_map.get(ciclo, 30)
+        local_month_map['Fevereiro'] = 29
+    return local_month_map.get(ciclo, 30)
 
 # ----------------------------------------------------------------------
-# Render do pódio
+# Lógica Principal de Processamento de Dados
+# ----------------------------------------------------------------------
+def load_and_prepare_data(all_sheets: dict):
+    all_data, pesos_records = [], []
+    for sheet_name in ETAPA_SHEETS:
+        if sheet_name in all_sheets:
+            try:
+                df_etapa = all_sheets[sheet_name].copy()
+                df_etapa.columns = [c.strip() for c in df_etapa.columns]
+                if not all(col in df_etapa.columns for col in ['NomeLoja','loja_key','Nota','Ciclo','Período']): continue
+                df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
+                for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
+                
+                if 'PesoDaEtapa' in df_etapa.columns:
+                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    df_etapa['Score_Etapa'] = nota_num * peso_num
+                else:
+                    df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    
+                df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
+                df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
+                all_data.append(df_consolidado)
+                
+                if 'PesoDaEtapa' in df_etapa.columns and sheet_name not in JOKER_ETAPAS:
+                    pesos_gp = df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index()
+                    pesos_gp['Etapa'] = f'{sheet_name}_Score'
+                    for _, r in pesos_gp.iterrows():
+                        pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoMaximo': float(r['PesoDaEtapa'])})
+            except Exception as e:
+                st.warning(f"Erro ao processar a aba '{sheet_name}': {e}")
+                continue
+    if not all_data: return pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
+    
+    combined_df = all_data[0]
+    for i in range(1, len(all_data)):
+        combined_df = pd.merge(combined_df, all_data[i], on=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'], how='outer')
+        
+    # *** CORREÇÃO: Usa a constante global MONTH_MAP para definir a ordem ***
+    month_order = list(MONTH_MAP.keys())
+    combined_df['Ciclo_Cat'] = pd.Categorical(combined_df['Ciclo'], categories=month_order, ordered=True)
+    combined_df.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao'], inplace=True, ignore_index=True)
+    
+    for etapa in MONTHLY_ETAPAS:
+        score_col = f"{etapa}_Score"
+        if score_col in combined_df.columns:
+            combined_df[score_col] = combined_df.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
+            
+    etapas_scores_cols = [c for c in combined_df.columns if c.endswith('_Score')]
+    periodos_df = combined_df[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
+    etapas_pesos_df = pd.DataFrame(pesos_records)
+    
+    return combined_df, etapas_scores_cols, periodos_df, etapas_pesos_df
+
+@st.cache_data(show_spinner=False)
+def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_total_min: float):
+    df_copy = df.copy()
+    for e in etapas_scores_cols:
+        if e not in df_copy.columns: df_copy[e] = 0.0
+    score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
+    df_copy["Avanço_Total"] = df_copy[score_cols_sem_coringa].sum(axis=1)
+    df_copy["Progresso"] = (df_copy["Avanço_Total"] / duracao_total_min) * 100.0 if duracao_total_min > 0 else 0.0
+    df_copy["Tempo_Faltante_min"] = (duracao_total_min - df_copy["Avanço_Total"]).clip(lower=0)
+    df_copy["Rank"] = df_copy["Avanço_Total"].rank(method="dense", ascending=False).astype(int)
+    df_copy.sort_values(["Avanço_Total","Nome_Exibicao"], ascending=[False,True], inplace=True, ignore_index=True)
+    return df_copy
+
+@st.cache_data(show_spinner=False)
+def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: list, ciclo: str, periodos: list):
+    if not ciclo or not periodos: return pd.DataFrame(), 0, 0.0
+    df = data_original[data_original["Ciclo"] == str(ciclo)].copy()
+    if df.empty: return pd.DataFrame(), 0, 0.0
+    if "Todos" not in periodos:
+        df = df[df["Periodo"].isin([str(p) for p in periodos])]
+    if df.empty: return pd.DataFrame(), 0, 0.0
+    
+    score_cols = [c for c in etapas_scores_cols if c in df.columns]
+    if not score_cols: return pd.DataFrame(), 0, 0.0
+    
+    aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum(min_count=1)
+    for col in etapas_scores_cols:
+        if col not in aggregated.columns: aggregated[col] = 0.0
+        
+    duracao_horas = get_race_duration_hours(ciclo)
+    duracao_minutos = duracao_horas * 60.0
+    final_df = calculate_final_scores(aggregated, etapas_scores_cols, duracao_minutos)
+    return final_df, duracao_horas, duracao_minutos
+
+# ----------------------------------------------------------------------
+# Funções de Renderização da Interface
 # ----------------------------------------------------------------------
 def render_podio_table(df_final: pd.DataFrame):
     if df_final is None or df_final.empty:
@@ -154,103 +243,6 @@ def render_podio_table(df_final: pd.DataFrame):
     st.markdown("### 🏆 Pódio — Lojas que cruzaram a linha de chegada!", unsafe_allow_html=True)
     st.markdown("".join(html_table), unsafe_allow_html=True)
 
-# ----------------------------------------------------------------------
-# Carregamento & preparação de dados
-# ----------------------------------------------------------------------
-def load_and_prepare_data(all_sheets: dict):
-    all_data, pesos_records = [], []
-    for sheet_name in ETAPA_SHEETS:
-        if sheet_name in all_sheets:
-            try:
-                df_etapa = all_sheets[sheet_name].copy()
-                df_etapa.columns = [c.strip() for c in df_etapa.columns]
-                if not all(col in df_etapa.columns for col in ['NomeLoja','loja_key','Nota','Ciclo','Período']): continue
-                df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
-                for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
-                
-                if 'PesoDaEtapa' in df_etapa.columns:
-                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
-                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
-                    df_etapa['Score_Etapa'] = nota_num * peso_num
-                else:
-                    df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
-                    
-                df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
-                df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
-                all_data.append(df_consolidado)
-                
-                if 'PesoDaEtapa' in df_etapa.columns and sheet_name not in JOKER_ETAPAS:
-                    pesos_gp = df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index()
-                    pesos_gp['Etapa'] = f'{sheet_name}_Score'
-                    for _, r in pesos_gp.iterrows():
-                        pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoMaximo': float(r['PesoDaEtapa'])})
-            except Exception as e:
-                st.warning(f"Erro ao processar a aba '{sheet_name}': {e}")
-                continue
-    if not all_data: return pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
-    
-    combined_df = all_data[0]
-    for i in range(1, len(all_data)):
-        combined_df = pd.merge(combined_df, all_data[i], on=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'], how='outer')
-        
-    month_order = list(get_race_duration_hours.keys())
-    combined_df['Ciclo_Cat'] = pd.Categorical(combined_df['Ciclo'], categories=month_order, ordered=True)
-    combined_df.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao'], inplace=True, ignore_index=True)
-    
-    for etapa in MONTHLY_ETAPAS:
-        score_col = f"{etapa}_Score"
-        if score_col in combined_df.columns:
-            combined_df[score_col] = combined_df.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
-            
-    etapas_scores_cols = [c for c in combined_df.columns if c.endswith('_Score')]
-    periodos_df = combined_df[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
-    etapas_pesos_df = pd.DataFrame(pesos_records)
-    
-    return combined_df, etapas_scores_cols, periodos_df, etapas_pesos_df
-
-# ----------------------------------------------------------------------
-# Cálculo de pontuação final
-# ----------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_total_min: float):
-    df_copy = df.copy()
-    for e in etapas_scores_cols:
-        if e not in df_copy.columns: df_copy[e] = 0.0
-    score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
-    df_copy["Avanço_Total"] = df_copy[score_cols_sem_coringa].sum(axis=1)
-    df_copy["Progresso"] = (df_copy["Avanço_Total"] / duracao_total_min) * 100.0 if duracao_total_min > 0 else 0.0
-    df_copy["Tempo_Faltante_min"] = (duracao_total_min - df_copy["Avanço_Total"]).clip(lower=0)
-    df_copy["Rank"] = df_copy["Avanço_Total"].rank(method="dense", ascending=False).astype(int)
-    df_copy.sort_values(["Avanço_Total","Nome_Exibicao"], ascending=[False,True], inplace=True, ignore_index=True)
-    return df_copy
-
-# ----------------------------------------------------------------------
-# Filtragem e agregação
-# ----------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: list, ciclo: str, periodos: list):
-    if not ciclo or not periodos: return pd.DataFrame(), 0, 0.0
-    df = data_original[data_original["Ciclo"] == str(ciclo)].copy()
-    if df.empty: return pd.DataFrame(), 0, 0.0
-    if "Todos" not in periodos:
-        df = df[df["Periodo"].isin([str(p) for p in periodos])]
-    if df.empty: return pd.DataFrame(), 0, 0.0
-    
-    score_cols = [c for c in etapas_scores_cols if c in df.columns]
-    if not score_cols: return pd.DataFrame(), 0, 0.0
-    
-    aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols].sum(min_count=1)
-    for col in etapas_scores_cols:
-        if col not in aggregated.columns: aggregated[col] = 0.0
-        
-    duracao_horas = get_race_duration_hours(ciclo)
-    duracao_minutos = duracao_horas * 60.0
-    final_df = calculate_final_scores(aggregated, etapas_scores_cols, duracao_minutos)
-    return final_df, duracao_horas, duracao_minutos
-
-# ----------------------------------------------------------------------
-# Visual: pista de corrida
-# ----------------------------------------------------------------------
 def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
     if data is None or data.empty: return go.Figure()
 
@@ -264,11 +256,17 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
                       line=dict(width=0), fillcolor="#2C3E50", layer="below")
 
     flag_width = max_horas * 0.04
-    for j in range(math.ceil(len(data) / (flag_width * 2))):
-        for k in range(4):
-            color = "white" if (j + k) % 2 == 0 else "black"
-            fig.add_shape(type="rect", x0=max_horas + (k * flag_width), y0=j * flag_width*2 - 0.5,
-                          x1=max_horas + ((k+1) * flag_width), y1=(j+1) * flag_width*2 - 0.5,
+    num_cols_flag = 4
+    num_rows_flag = math.ceil(len(data) / 0.5) 
+    square_size_y = 0.5 
+
+    for i in range(num_rows_flag):
+        for j in range(num_cols_flag):
+            x_start = max_horas + (j * flag_width)
+            y_start = i * square_size_y - 0.5
+            color = "white" if (i + j) % 2 == 0 else "black"
+            fig.add_shape(type="rect", x0=x_start, y0=y_start,
+                          x1=x_start + flag_width, y1=y_start + square_size_y,
                           line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
 
     for i, row in data.iterrows():
@@ -299,9 +297,6 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
                       plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
     return fig
 
-# ----------------------------------------------------------------------
-# Lógica Principal do Aplicativo (renders)
-# ----------------------------------------------------------------------
 def render_header_and_periodo(campaign_name: str, periodo_inicio: str, periodo_fim: str, duracao_horas: float):
     st.markdown("<div class='app-header'>", unsafe_allow_html=True)
     st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
@@ -323,18 +318,17 @@ def render_geral_page():
 
     st.markdown("### Classificação Completa")
     df_classificacao = df_final.copy()
-    rename_dict = {col: col.replace('_Score', '') for col in df_classificacao.columns if col.endswith('_Score')}
+    score_cols = [c for c in df_classificacao.columns if c.endswith('_Score')]
+    rename_dict = {col: col.replace('_Score', '') for col in score_cols}
     df_classificacao.rename(columns=rename_dict, inplace=True)
     
     colunas_finais = ['Rank', 'Nome_Exibicao'] + list(rename_dict.values()) + ['Avanço_Total', 'Progresso', 'Tempo_Faltante_min']
     df_display = df_classificacao[colunas_finais].copy()
     df_display.rename(columns={'Avanço_Total': 'Avanço Total', 'Tempo_Faltante_min': 'Faltam'}, inplace=True)
 
-    for col in list(rename_dict.values()):
+    for col in df_display.columns:
         if col not in ['Rank', 'Nome_Exibicao', 'Progresso']:
-            df_display[col] = df_display[col].apply(lambda x: format_minutes(x) if pd.notna(x) else "-")
-    for col in ['Avanço Total', 'Faltam']:
-        df_display[col] = df_display[col].apply(format_minutes)
+            df_display[col] = df_display[col].apply(format_minutes)
     df_display['Progresso'] = df_display['Progresso'].apply(lambda x: f"{x:.1f}%")
     
     st.dataframe(df_display, use_container_width=True, hide_index=True)
@@ -391,12 +385,12 @@ def render_loja_page():
                 fig = go.Figure()
                 fig.add_trace(go.Scatterpolar(r=df_melhoria['Avanço Máximo'], theta=df_melhoria['Etapa'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)'), name='Avanço Máximo'))
                 fig.add_trace(go.Scatterpolar(r=df_melhoria['Avanço Atual'], theta=df_melhoria['Etapa'], fill='toself', fillcolor='rgba(0, 176, 246, 0.4)', line=dict(color='rgba(0, 176, 246, 1)'), name='Avanço Atual'))
-                fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Avanço Máximo'].max() * 1.1])),
+                fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Avanço Máximo'].max() * 1.1 if not df_melhoria.empty else 1])),
                                   showlegend=True, paper_bgcolor="rgba(0,0,0,0)", font_color="white", margin=dict(l=40, r=40, t=80, b=40))
                 st.plotly_chart(fig, use_container_width=True)
 
 # ----------------------------------------------------------------------
-# Inicializações e Estrutura Principal
+# Estrutura Principal do App
 # ----------------------------------------------------------------------
 if 'page' not in st.session_state: st.session_state.page = "Geral"
 
@@ -418,8 +412,9 @@ with st.sidebar:
     ciclos_unicos = periodos_df["Ciclo"].dropna().unique().tolist() if not periodos_df.empty else []
     if not ciclos_unicos: st.stop()
     
-    MONTH_ORDER_MAP = {name: i for i, name in enumerate(get_race_duration_hours.keys())}
-    sorted_ciclos = sorted(ciclos_unicos, key=lambda m: MONTH_ORDER_MAP.get(m, -1))
+    # Usa a constante global MONTH_MAP para criar um mapa de ordenação
+    sort_order_map = {name: i for i, name in enumerate(MONTH_MAP.keys())}
+    sorted_ciclos = sorted(ciclos_unicos, key=lambda m: sort_order_map.get(m, -1))
     
     ciclo_selecionado = st.selectbox("Selecione o Ciclo", sorted_ciclos, index=len(sorted_ciclos)-1)
     periodos_ciclo = sorted(periodos_df[periodos_df["Ciclo"] == ciclo_selecionado]["Periodo"].dropna().unique())
@@ -431,14 +426,14 @@ with st.sidebar:
     if st.button("Visão Geral", use_container_width=True, type="primary" if st.session_state.page == "Geral" else "secondary"): st.session_state.page = "Geral"
     if st.button("Visão por Loja", use_container_width=True, type="primary" if st.session_state.page == "Loja" else "secondary"): st.session_state.page = "Loja"
 
-if st.session_state.ciclo and st.session_state.periodos:
+if st.session_state.get('ciclo') and st.session_state.get('periodos'):
     df_final, duracao_horas, duracao_min = filter_and_aggregate_data(
         st.session_state.data_original, st.session_state.etapas_scores_cols,
         st.session_state.ciclo, st.session_state.periodos
     )
     st.session_state.update({'df_final': df_final, 'duracao_horas': duracao_horas, 'duracao_total_min': duracao_min})
 
-periodo_inicio, periodo_fim = get_period_range(st.session_state.ciclo, st.session_state.periodos, st.session_state.periodos_df)
+periodo_inicio, periodo_fim = get_period_range(st.session_state.get('ciclo'), st.session_state.get('periodos'), st.session_state.get('periodos_df'))
 render_header_and_periodo("Circuito MiniPreço", periodo_inicio, periodo_fim, st.session_state.get('duracao_horas', 0))
 
 if st.session_state.page == "Geral":
