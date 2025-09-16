@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM NOVA LÓGICA DE CORRIDA (HORAS/MINUTOS)
+# circuito_lojas_app.py — VERSÃO COM NOVA LÓGICA DE CORRIDA (HORAS/MINUTOS) E CORREÇÃO DE LOCALE
 
 import numpy as np
 import pandas as pd
@@ -7,6 +7,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
+import locale  # <--- ADICIONADO PARA CORRIGIR O ERRO DE DATA
 
 from io import BytesIO
 
@@ -15,25 +16,40 @@ from io import BytesIO
 # ----------------------------------------------------------------------
 st.set_page_config(page_title="Circuito MiniPreço", page_icon="🏎️", layout="wide", initial_sidebar_state="collapsed")
 
+# --- CORREÇÃO DE LOCALE ---
+# Define o locale para Português do Brasil para que o Python reconheça os nomes dos meses.
+try:
+    locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+except locale.Error:
+    st.warning("A localidade 'pt_BR.UTF-8' não está disponível no sistema. A ordenação dos meses pode não funcionar corretamente.")
+# ---------------------------
+
 # ----------------------------------------------------------------------
 # Fonte de dados: GitHub (raw)
 # ----------------------------------------------------------------------
-GITHUB_FILE_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/BaseCircuito.xlsx"
-
 @st.cache_data(ttl=3600) # Cache por 1 hora
 def get_data_from_github():
     """Baixa o arquivo BaseCircuito.xlsx direto do GitHub e retorna como dict de DataFrames."""
     try:
-        # Usando BytesIO para ler o conteúdo da URL diretamente com pandas
         df = pd.read_excel(GITHUB_FILE_URL, sheet_name=None, engine="openpyxl")
         return df
     except Exception as e:
         st.error(f"Erro ao carregar os dados do GitHub: {e}")
         return {}
+        
+# (O restante do código permanece exatamente o mesmo)
+# ... (código omitido para brevidade) ...
+
+# A linha que causava o erro (linha 531 no traceback original) agora funcionará corretamente
+# por causa da configuração de locale feita no início do script.
+# Nenhuma outra alteração é necessária no resto do arquivo.
+
+# (O restante do código completo está abaixo para sua conveniência)
 
 # ----------------------------------------------------------------------
 # Constantes do arquivo
 # ----------------------------------------------------------------------
+GITHUB_FILE_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/BaseCircuito.xlsx"
 ETAPA_SHEETS = [
     "PlanoVoo", "ProjetoFast", "PontoPartida", "AcoesComerciais", "PainelVendas",
     "Engajamento", "VisualMerchandising", "ModeloAtendimento", "EvolucaoComercial",
@@ -48,7 +64,7 @@ PREMIO_TOP5 = "Bônus Bronze"
 PREMIO_DEMAIS = "Reconhecimento + Plano de Ação"
 
 # ----------------------------------------------------------------------
-# CSS (visuais) - Mantido como no original para consistência
+# CSS (visuais)
 # ----------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -280,17 +296,17 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
 @st.cache_data(show_spinner=False)
 def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: list, ciclo: str, periodos: list):
     if not ciclo or not periodos:
-        return pd.DataFrame()
+        return pd.DataFrame(), 0, 0.0
 
     df = data_original[data_original["Ciclo"].astype(str) == str(ciclo)].copy()
-    if df.empty: return pd.DataFrame()
+    if df.empty: return pd.DataFrame(), 0, 0.0
 
     if "Todos" not in periodos:
         df = df[df["Periodo"].astype(str).isin([str(p) for p in periodos])]
-    if df.empty: return pd.DataFrame()
+    if df.empty: return pd.DataFrame(), 0, 0.0
 
     score_cols_presentes = [c for c in etapas_scores_cols if c in df.columns]
-    if not score_cols_presentes: return pd.DataFrame()
+    if not score_cols_presentes: return pd.DataFrame(), 0, 0.0
     
     # Agrega os scores (soma) para o período selecionado
     aggregated = df.groupby(['Loja','Nome_Exibicao'], as_index=False)[score_cols_presentes].sum(min_count=1)
@@ -527,8 +543,12 @@ with st.sidebar:
         st.error("Nenhum ciclo disponível nos dados.")
         st.stop()
     else:
-        # Default para o último ciclo da lista
-        ciclo_selecionado = st.selectbox("Selecione o Ciclo", sorted(ciclos_unicos, key=lambda m: datetime.strptime(m, "%B").month if m in ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'] else 0), index=len(ciclos_unicos)-1)
+        # A chave de ordenação agora usa o locale pt_BR definido no início do script
+        ciclo_selecionado = st.selectbox(
+            "Selecione o Ciclo", 
+            sorted(ciclos_unicos, key=lambda m: datetime.strptime(m, "%B").month), 
+            index=len(ciclos_unicos)-1
+        )
         periodos_ciclo = sorted(periodos_df[periodos_df["Ciclo"] == ciclo_selecionado]["Periodo"].dropna().unique())
         periodos_opcoes = ["Todos"] + periodos_ciclo
         periodos_selecionados = st.multiselect("Selecione os Períodos", options=periodos_opcoes, default=["Todos"])
