@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DA PISTA MOBILE E HOVER
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE VALUE_ERROR E PISTA HÍBRIDA
 
 import numpy as np
 import pandas as pd
@@ -44,15 +44,11 @@ st.markdown("""
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
 .app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
 .app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
-
-/* Estilos do Pódio */
 .podio-card h2 { font-size: 2em; margin: 8px 0 2px 0; }
 .podio-card h3 { font-size: 1.1em; margin: 0; }
 .podio-card p.breakdown-text { margin: 0 0 8px 0; font-size: 0.8em; opacity: 0.7; }
 .podio-card p.progress-text { margin: 4px 0 0 0; font-size:0.9em; opacity: 0.9;}
 .podio-card p.remaining-text { margin: 2px 0 0 0; font-size:0.8em; opacity: 0.7;}
-
-/* Estilos da Tabela de Classificação */
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
@@ -230,7 +226,7 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
     
-    # Prepara dados para o gráfico de carros
+    # Adiciona os Nomes das Lojas e a Interação (Hover/Toque)
     hover_texts = []
     for i, row in data.iterrows():
         hover_texts.append(
@@ -241,17 +237,11 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             f"Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>"
             f"Rank: #{row['Rank']}"
         )
-
-    # Adiciona os carros usando marcadores de imagem (mais robusto para mobile)
+    
     fig.add_trace(go.Scatter(
         x=data['Posicao_Horas'],
         y=data.index,
-        mode='markers+text',
-        marker=dict(
-            symbol='url(' + CAR_ICON_URL + ')',
-            size=50,
-            angle=0
-        ),
+        mode='text',
         text=data['Nome_Exibicao'],
         textposition="top center",
         textfont=dict(color='white', size=10),
@@ -260,12 +250,27 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         showlegend=False
     ))
 
+    # Adiciona os Ícones dos Carros (Método Antigo e Confiável)
+    for i, row in data.iterrows():
+        fig.add_layout_image(
+            dict(
+                source=CAR_ICON_URL,
+                xref="x", yref="y",
+                x=row['Posicao_Horas'], y=i,
+                sizex=max(1.5, duracao_total_horas / 20),
+                sizey=0.85,
+                xanchor="center", yanchor="middle",
+                layer="above"
+            )
+        )
+
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
     return fig
 
 def render_geral_page():
+    # ... (código mantido como na versão anterior)
     st.header("Visão Geral da Corrida")
     df_final = st.session_state.get('df_final')
     if df_final is None or df_final.empty:
@@ -301,7 +306,7 @@ def render_geral_page():
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
-        html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
+        html.append(f"<td>{row['Avanço_Horas']:.2f}h</td>")
         html.append(f"<td>{prog_bar}</td>")
         if show_details:
             for col in score_cols_with_data:
@@ -311,6 +316,7 @@ def render_geral_page():
     st.markdown("".join(html), unsafe_allow_html=True)
 
 def render_loja_page():
+    # ... (código mantido como na versão anterior)
     st.header("Visão por Loja")
     df_final = st.session_state.get('df_final')
     etapas_pesos_df = st.session_state.get('etapas_pesos_df', pd.DataFrame())
@@ -322,7 +328,7 @@ def render_loja_page():
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Avanço na Pista", f"{loja_row['Posicao_Horas']:.2f}h")
+        with col1: st.metric("Avanço na Pista", f"{loja_row['Avanço_Horas']:.2f}h")
         with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row['Boost_Total_Min'] / 60)}")
         with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
         with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
@@ -356,6 +362,7 @@ def render_loja_page():
                     st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
+    # ... (código mantido como na versão anterior)
     st.header("Visão por Etapa")
     df_final = st.session_state.get('df_final')
     etapas_scores_cols = st.session_state.get('etapas_scores_cols', [])
