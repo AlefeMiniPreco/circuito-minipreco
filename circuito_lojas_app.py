@@ -11,8 +11,8 @@ import time
 # Configuração inicial do Streamlit
 # ----------------------------------------------------------------------
 st.set_page_config(
-    page_title="Circuito MiniPreço F1", 
-    page_icon="🏎️", 
+    page_title="Circuito MiniPreço", 
+    page_icon="🏆", 
     layout="wide", 
     initial_sidebar_state="collapsed"
 )
@@ -39,94 +39,97 @@ ETAPA_SHEETS = [
 MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
 JOKER_ETAPAS = ["Meta"]
 
-# Cores da temática F1
-F1_COLORS = {
-    'red': '#FF1801',     # Ferrari
-    'blue': '#006F62',    # Mercedes
-    'yellow': '#F0D800',  # Renault
-    'orange': '#FF8700',  # McLaren
-    'pink': '#EB0EAD',    # Racing Point
-    'white': '#FFFFFF',
-    'black': '#000000',
-    'gray': '#333333',
-    'light_gray': '#888888',
-    'track_green': '#2E8B57',
-    'asphalt': '#36454F'
+# Paleta de cores moderna (vermelho, amarelo, preto)
+COLORS = {
+    'primary': '#E63946',     # Vermelho vibrante
+    'secondary': '#F1FAEE',   # Branco suave
+    'accent': '#FCA311',      # Amarelo/laranja
+    'dark': '#1D3557',        # Azul escuro
+    'black': '#000000',       # Preto
+    'gray': '#8D99AE',        # Cinza
+    'light_gray': '#EDF2F4',  # Cinza claro
+    'success': '#2A9D8F',     # Verde
+    'background': '#0A0A0A',  # Preto de fundo
+    'card_dark': '#1E1E1E',   # Card escuro
+    'card_light': '#2D2D2D',  # Card claro
 }
 
 # ----------------------------------------------------------------------
-# CSS (visuais com temática F1)
+# CSS (design moderno com tons de vermelho, amarelo e preto)
 # ----------------------------------------------------------------------
 st.markdown(f"""
 <style>
-/* Estilos Gerais com tema F1 */
+/* Estilos Gerais */
 body {{
-    background-color: {F1_COLORS['black']};
-    color: {F1_COLORS['white']};
-    font-family: 'Titillium Web', sans-serif;
+    background-color: {COLORS['background']};
+    color: {COLORS['secondary']};
+    font-family: 'Inter', sans-serif;
 }}
 
 .app-header {{ 
     text-align: center; 
     margin-top: -18px; 
     margin-bottom: 6px; 
-    background: linear-gradient(90deg, {F1_COLORS['red']}, {F1_COLORS['yellow']});
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    background: linear-gradient(90deg, {COLORS['black']}, {COLORS['primary']});
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(230, 57, 70, 0.3);
+    border: 1px solid {COLORS['primary']};
 }}
 .app-header h1 {{ 
-    font-size: 42px !important; 
+    font-size: 46px !important; 
     margin: 0; 
     letter-spacing: 2px; 
-    color: {F1_COLORS['white']}; 
+    color: {COLORS['secondary']}; 
     font-weight: 900; 
     text-shadow: 0 2px 4px rgba(0,0,0,0.8);
     text-transform: uppercase;
 }}
 .app-header p {{ 
-    margin: 4px 0 0 0; 
-    color: rgba(255,255,255,0.9); 
-    font-size: 16px; 
+    margin: 8px 0 0 0; 
+    color: {COLORS['accent']}; 
+    font-size: 18px; 
     font-weight: 600;
 }}
 
 /* Cards de Pódio */
 .podio-card {{
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: 16px;
+    padding: 24px;
     text-align: center;
     height: 100%;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.4);
-    transition: transform 0.3s ease;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+    transition: all 0.3s ease;
+    border: 2px solid;
 }}
 .podio-card:hover {{
-    transform: translateY(-5px);
+    transform: translateY(-8px);
+    box-shadow: 0 12px 30px rgba(230, 57, 70, 0.4);
 }}
 .podio-card h2 {{ 
-    font-size: 2.2em; 
-    margin: 8px 0 2px 0; 
-    font-weight: 800;
+    font-size: 2.4em; 
+    margin: 12px 0 4px 0; 
+    font-weight: 900;
 }}
 .podio-card h3 {{ 
-    font-size: 1.3em; 
+    font-size: 1.4em; 
     margin: 0; 
     font-weight: 700;
 }}
 .podio-card p.breakdown-text {{ 
-    margin: 0 0 8px 0; 
-    font-size: 0.9em; 
+    margin: 0 0 12px 0; 
+    font-size: 0.95em; 
     opacity: 0.8; 
 }}
 .podio-card p.progress-text {{ 
-    margin: 4px 0 0 0; 
-    font-size: 1em; 
+    margin: 8px 0 0 0; 
+    font-size: 1.1em; 
     opacity: 0.9;
     font-weight: 600;
 }}
 .podio-card p.remaining-text {{ 
-    margin: 2px 0 0 0; 
-    font-size: 0.9em; 
+    margin: 4px 0 0 0; 
+    font-size: 0.95em; 
     opacity: 0.7;
 }}
 
@@ -134,114 +137,152 @@ body {{
 .race-table {{ 
     width: 100%; 
     border-collapse: collapse; 
-    font-family: "Titillium Web", sans-serif; 
+    font-family: "Inter", sans-serif; 
     margin-top: 10px; 
     font-size: 0.95em; 
-    border: 1px solid {F1_COLORS['gray']};
-    border-radius: 8px;
+    border: 1px solid {COLORS['primary']};
+    border-radius: 12px;
     overflow: hidden;
+    box-shadow: 0 6px 15px rgba(0,0,0,0.3);
 }}
 .race-table th {{ 
-    background: linear-gradient(90deg, {F1_COLORS['red']}, {F1_COLORS['yellow']});
-    color: {F1_COLORS['white']}; 
-    padding: 14px 15px; 
+    background: linear-gradient(90deg, {COLORS['primary']}, {COLORS['accent']});
+    color: {COLORS['black']}; 
+    padding: 16px 15px; 
     text-align: left; 
     font-size: 14px; 
     text-transform: uppercase; 
     letter-spacing: 1px; 
-    font-weight: 700;
+    font-weight: 800;
 }}
 .race-table td {{ 
-    padding: 14px 15px; 
-    color: {F1_COLORS['white']}; 
-    border-bottom: 1px solid {F1_COLORS['gray']}; 
+    padding: 16px 15px; 
+    color: {COLORS['secondary']}; 
+    border-bottom: 1px solid {COLORS['card_light']}; 
     font-weight: 500;
 }}
 .race-table tr.zebra {{ 
-    background-color: rgba(255, 255, 255, 0.05); 
+    background-color: {COLORS['card_dark']}; 
 }}
 .race-table tr:hover {{ 
-    background-color: {F1_COLORS['gray']}; 
+    background-color: {COLORS['primary']}20; 
 }}
 .rank-cell {{ 
     font-weight: 900; 
-    font-size: 1.3em; 
+    font-size: 1.4em; 
     text-align: center; 
 }}
 .rank-1 {{ 
-    color: {F1_COLORS['yellow']}; 
-    text-shadow: 0 0 8px rgba(240, 216, 0, 0.7);
+    color: {COLORS['accent']}; 
+    text-shadow: 0 0 10px rgba(252, 163, 17, 0.7);
 }}
 .rank-2 {{ 
-    color: {F1_COLORS['white']}; 
+    color: {COLORS['secondary']}; 
 }}
 .rank-3 {{ 
-    color: {F1_COLORS['orange']}; 
+    color: {COLORS['primary']}; 
 }}
 .loja-cell {{ 
     font-weight: 800; 
-    color: {F1_COLORS['white']}; 
+    color: {COLORS['secondary']}; 
     font-size: 1.1em; 
 }}
 
 /* Barras de Progresso */
 .progress-bar-container {{ 
-    background-color: {F1_COLORS['gray']}; 
-    border-radius: 10px; 
+    background-color: {COLORS['card_light']}; 
+    border-radius: 12px; 
     overflow: hidden; 
-    height: 20px; 
+    height: 24px; 
     width: 100%; 
     min-width: 100px; 
-    border: 1px solid {F1_COLORS['light_gray']};
+    border: 1px solid {COLORS['primary']};
 }}
 .progress-bar {{ 
-    background: linear-gradient(90deg, {F1_COLORS['red']}, {F1_COLORS['yellow']});
+    background: linear-gradient(90deg, {COLORS['primary']}, {COLORS['accent']});
     height: 100%; 
-    border-radius: 10px; 
+    border-radius: 12px; 
     text-align: center; 
-    color: {F1_COLORS['white']}; 
+    color: {COLORS['black']}; 
     font-size: 12px; 
-    line-height: 20px; 
-    font-weight: 700;
-    box-shadow: 0 0 8px rgba(255, 24, 1, 0.6);
+    line-height: 24px; 
+    font-weight: 800;
+    box-shadow: 0 0 12px rgba(230, 57, 70, 0.6);
 }}
 
 /* Sidebar */
 .css-1d391kg {{ 
-    background-color: {F1_COLORS['black']};
-    border-right: 2px solid {F1_COLORS['red']};
+    background-color: {COLORS['black']};
+    border-right: 2px solid {COLORS['primary']};
 }}
 .stButton > button {{
-    background: linear-gradient(90deg, {F1_COLORS['red']}, {F1_COLORS['yellow']});
-    color: {F1_COLORS['white']};
+    background: linear-gradient(90deg, {COLORS['primary']}, {COLORS['accent']});
+    color: {COLORS['black']};
     border: none;
-    border-radius: 6px;
-    padding: 10px;
-    font-weight: 700;
+    border-radius: 8px;
+    padding: 12px;
+    font-weight: 800;
     transition: all 0.3s ease;
+    margin: 5px 0;
 }}
 .stButton > button:hover {{
-    background: linear-gradient(90deg, {F1_COLORS['yellow']}, {F1_COLORS['red']});
+    background: linear-gradient(90deg, {COLORS['accent']}, {COLORS['primary']});
     transform: scale(1.03);
+    color: {COLORS['black']};
+    box-shadow: 0 0 15px rgba(230, 57, 70, 0.5);
 }}
 
 /* Cards de Métricas */
 .metric-card {{
-    background: rgba(30, 30, 30, 0.7);
-    border-radius: 8px;
-    padding: 15px;
-    border-left: 4px solid {F1_COLORS['red']};
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    background: {COLORS['card_dark']};
+    border-radius: 12px;
+    padding: 20px;
+    border-left: 5px solid {COLORS['primary']};
+    box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+    transition: all 0.3s ease;
+}}
+.metric-card:hover {{
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(230, 57, 70, 0.3);
+}}
+.metric-card h3 {{
+    color: {COLORS['accent']};
+    margin: 0 0 10px 0;
+    font-size: 1.1em;
+}}
+.metric-card h2 {{
+    color: {COLORS['secondary']};
+    margin: 0;
+    font-size: 1.8em;
+    font-weight: 800;
+}}
+
+/* Abas */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 8px;
+}}
+.stTabs [data-baseweb="tab"] {{
+    background: {COLORS['card_dark']};
+    border-radius: 8px 8px 0 0;
+    padding: 12px 20px;
+    font-weight: 600;
+    border: 1px solid {COLORS['primary']};
+    border-bottom: none;
+}}
+.stTabs [aria-selected="true"] {{
+    background: linear-gradient(90deg, {COLORS['primary']}, {COLORS['accent']});
+    color: {COLORS['black']};
+    font-weight: 800;
 }}
 
 /* Responsividade */
 @media (max-width: 640px) {{
-    .app-header h1 {{ font-size: 28px !important; }}
-    .app-header p {{ font-size: 12px; }}
-    .podio-card h2 {{ font-size: 1.5em; }}
-    .podio-card h3 {{ font-size: 1em; }}
-    .race-table {{ font-size: 0.8em; }}
-    .race-table th, .race-table td {{ padding: 8px 6px; }}
+    .app-header h1 {{ font-size: 32px !important; }}
+    .app-header p {{ font-size: 14px; }}
+    .podio-card h2 {{ font-size: 1.8em; }}
+    .podio-card h3 {{ font-size: 1.2em; }}
+    .race-table {{ font-size: 0.85em; }}
+    .race-table th, .race-table td {{ padding: 12px 8px; }}
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -411,11 +452,11 @@ def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: l
     return final_df, duracao_horas, baseline_horas
 
 # ----------------------------------------------------------------------
-# Funções de Renderização da Interface (com tema F1)
+# Funções de Renderização da Interface (design moderno)
 # ----------------------------------------------------------------------
 def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: float, baseline_horas: float):
     st.markdown("<div class='app-header'>", unsafe_allow_html=True)
-    st.markdown(f"<h1>🏎️ {campaign_name} 🏁</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1>🏆 {campaign_name} 🏆</h1>", unsafe_allow_html=True)
     
     # Calcular informações da corrida
     dias_corrida = duracao_horas / 24
@@ -425,9 +466,9 @@ def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: floa
     st.markdown(f"""
     <p>
     Ciclo: <b>{ciclo}</b> | 
-    Duração da Corrida: <b>{dias_corrida:.0f} dias</b> | 
-    Voltas Completas: <b>{dias_decorridos:.0f}</b> | 
-    Voltas Restantes: <b>{dias_restantes:.0f}</b>
+    Duração da Competição: <b>{dias_corrida:.0f} dias</b> | 
+    Dias Decorridos: <b>{dias_decorridos:.0f}</b> | 
+    Dias Restantes: <b>{dias_restantes:.0f}</b>
     </p>
     """, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -445,10 +486,10 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
             row = df_final.iloc[0]
             st.markdown(
                 f"""
-                <div class='podio-card' style='background: linear-gradient(135deg, {F1_COLORS['yellow']}, {F1_COLORS['orange']}); color: {F1_COLORS['black']};'>
+                <div class='podio-card' style='background: linear-gradient(135deg, {COLORS['accent']}, {COLORS['primary']}); color: {COLORS['black']}; border-color: {COLORS['accent']};'>
                 <h3>🥇 {row['Rank']}º — {row['Nome_Exibicao']}</h3>
                 <h2>{format_hours_and_minutes(row['Posicao_Horas'])}</h2>
-                <p class='breakdown-text'>({baseline_horas/24:.0f}d de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Impulso)</p>
+                <p class='breakdown-text'>({baseline_horas/24:.0f}d de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Bônus)</p>
                 <p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>
                 <p class='remaining-text'>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</p>
                 </div>
@@ -462,10 +503,10 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
             row = df_final.iloc[1]
             st.markdown(
                 f"""
-                <div class='podio-card' style='background: linear-gradient(135deg, {F1_COLORS['white']}, {F1_COLORS['light_gray']}); color: {F1_COLORS['black']};'>
+                <div class='podio-card' style='background: linear-gradient(135deg, {COLORS['secondary']}, {COLORS['gray']}); color: {COLORS['black']}; border-color: {COLORS['secondary']};'>
                 <h3>🥈 {row['Rank']}º — {row['Nome_Exibicao']}</h3>
                 <h2>{format_hours_and_minutes(row['Posicao_Horas'])}</h2>
-                <p class='breakdown-text'>({baseline_horas/24:.0f}d de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Impulso)</p>
+                <p class='breakdown-text'>({baseline_horas/24:.0f}d de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Bônus)</p>
                 <p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>
                 <p class='remaining-text'>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</p>
                 </div>
@@ -479,10 +520,10 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
             row = df_final.iloc[2]
             st.markdown(
                 f"""
-                <div class='podio-card' style='background: linear-gradient(135deg, {F1_COLORS['orange']}, #BF5B17); color: {F1_COLORS['white']};'>
+                <div class='podio-card' style='background: linear-gradient(135deg, {COLORS['primary']}, #BF4342); color: {COLORS['secondary']}; border-color: {COLORS['primary']};'>
                 <h3>🥉 {row['Rank']}º — {row['Nome_Exibicao']}</h3>
                 <h2>{format_hours_and_minutes(row['Posicao_Horas'])}</h2>
-                <p class='breakdown-text'>({baseline_horas/24:.0f}d de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Impulso)</p>
+                <p class='breakdown-text'>({baseline_horas/24:.0f}d de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Bônus)</p>
                 <p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>
                 <p class='remaining-text'>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</p>
                 </div>
@@ -496,7 +537,6 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     
     # Configuração da pista
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
-    CHECKERED_FLAG_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/checkered-flag.png"
     
     fig = go.Figure()
     
@@ -512,8 +552,8 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             y0=i-0.4, 
             x1=limite_eixo, 
             y1=i+0.4, 
-            line=dict(color=F1_COLORS['white'], width=1), 
-            fillcolor=F1_COLORS['asphalt'], 
+            line=dict(color=COLORS['gray'], width=1), 
+            fillcolor=COLORS['card_dark'], 
             layer="below"
         )
         
@@ -524,54 +564,45 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             y0=i, 
             x1=limite_eixo, 
             y1=i, 
-            line=dict(color=F1_COLORS['white'], width=1, dash="dash"), 
+            line=dict(color=COLORS['primary'], width=1, dash="dash"), 
             layer="below"
         )
     
-    # Linha de partida
+    # Linha de partida (vermelha)
     fig.add_shape(
         type="line", 
         x0=0, 
         y0=-0.5, 
         x1=0, 
         y1=len(data)-0.5, 
-        line=dict(color=F1_COLORS['red'], width=4, dash="solid"), 
+        line=dict(color=COLORS['primary'], width=4, dash="solid"), 
         layer="above"
     )
     
-    # Linha de chegada
-    fig.add_shape(
-        type="line", 
-        x0=duracao_total_horas, 
-        y0=-0.5, 
-        x1=duracao_total_horas, 
-        y1=len(data)-0.5, 
-        line=dict(color=F1_COLORS['black'], width=6), 
-        layer="above"
-    )
-    
-    # Bandeira quadriculada no final
-    fig.add_layout_image(
-        dict(
-            source=CHECKERED_FLAG_URL,
-            xref="x", 
-            yref="y", 
-            x=duracao_total_horas, 
-            y=len(data)/2,
-            sizex=duracao_total_horas * 0.05,
-            sizey=len(data) * 0.8,
-            layer="above",
-            xanchor="right",
-            yanchor="middle"
-        )
-    )
+    # Linha de chegada (preta e branca - estilo bandeira quadriculada)
+    # Corrigindo a linha de chegada para aparecer
+    square_size = max(0.5, duracao_total_horas / 40)
+    num_cols = 2 
+    for i in range(math.ceil((len(data)+0.5) / square_size)):
+        for j in range(num_cols):
+            color = "white" if (i + j) % 2 == 0 else "black"
+            fig.add_shape(
+                type="rect", 
+                x0=duracao_total_horas + (j * square_size), 
+                y0=i*square_size - 0.5, 
+                x1=duracao_total_horas + ((j+1) * square_size), 
+                y1=(i+1)*square_size - 0.5, 
+                line=dict(width=0.5, color="black"), 
+                fillcolor=color, 
+                layer="above"
+            )
     
     # Preparar textos para hover
     hover_texts = [
         f"<b>{row['Nome_Exibicao']}</b><br>"
         f"Posição: {row['Posicao_Horas']:.2f}h<br>"
         f"Progresso: {row['Progresso']:.1f}%<br>"
-        f"Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>"
+        f"Bônus: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>"
         f"Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>"
         f"Rank: #{row['Rank']}"
         for i, row in data.iterrows()
@@ -602,7 +633,7 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         mode='text',
         text=data['Nome_Exibicao'],
         textposition="top center",
-        textfont=dict(color=F1_COLORS['white'], size=10, family='Arial Black'),
+        textfont=dict(color=COLORS['secondary'], size=10, family='Arial Black'),
         hoverinfo='text',
         hovertext=hover_texts,
         showlegend=False
@@ -611,13 +642,15 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     # Configurar layout do gráfico
     fig.update_xaxes(
         range=[-limite_eixo*0.02, limite_eixo * 1.05], 
-        title_text="Avanço na Pista (horas) →", 
+        title_text="Progresso na Competição (horas) →", 
         fixedrange=True, 
         tick0=0, 
         dtick=24,  # Marcadores a cada 24 horas (1 dia)
         showgrid=True,
-        gridcolor=F1_COLORS['gray'],
-        zeroline=False
+        gridcolor=COLORS['gray'],
+        zeroline=False,
+        title_font=dict(color=COLORS['secondary']),
+        tickfont=dict(color=COLORS['secondary'])
     )
     
     fig.update_yaxes(
@@ -631,18 +664,17 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     fig.update_layout(
         height=max(600, 300 + 40*len(data)),
         margin=dict(l=10, r=10, t=80, b=40),
-        plot_bgcolor=F1_COLORS['black'],
-        paper_bgcolor=F1_COLORS['black'],
-        title="Pista do Circuito MiniPreço F1",
-        title_font=dict(size=20, color=F1_COLORS['white'], family='Arial Black'),
-        xaxis_title_font=dict(color=F1_COLORS['white']),
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        title="Trajetória da Competição",
+        title_font=dict(size=20, color=COLORS['secondary'], family='Arial Black'),
         showlegend=False
     )
     
     return fig
 
 def render_geral_page():
-    st.header("🏁 Visão Geral da Corrida")
+    st.header("📊 Visão Geral da Competição")
     
     df_final = st.session_state.get('df_final')
     if df_final is None or df_final.empty:
@@ -660,11 +692,11 @@ def render_geral_page():
     # Métricas principais
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown(f'<div class="metric-card"><h3>Voltas Restantes</h3><h2>{dias_restantes:.0f}</h2></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><h3>Tempo Restante</h3><h2>{dias_restantes:.0f} dias</h2></div>', unsafe_allow_html=True)
     with col2:
         st.markdown(f'<div class="metric-card"><h3>Líder Atual</h3><h2>{df_final["Nome_Exibicao"].iloc[0] if not df_final.empty else "N/A"}</h2></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown(f'<div class="metric-card"><h3>Total de Equipes</h3><h2>{len(df_final)}</h2></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><h3>Total de Lojas</h3><h2>{len(df_final)}</h2></div>', unsafe_allow_html=True)
     with col4:
         progresso_medio = df_final["Progresso"].mean() if not df_final.empty else 0
         st.markdown(f'<div class="metric-card"><h3>Progresso Médio</h3><h2>{progresso_medio:.1f}%</h2></div>', unsafe_allow_html=True)
@@ -672,20 +704,20 @@ def render_geral_page():
     # Pódio
     render_podio_table(df_final, baseline_horas)
     
-    # Pista de corrida
-    st.markdown("### 🏎️ Pista de Corrida do Circuito")
+    # Visualização da competição
+    st.markdown("### 📍 Trajetória da Competição")
     fig_pista = build_pista_fig(df_final, duracao_horas)
     st.plotly_chart(fig_pista, use_container_width=True)
     
     # Tabela de classificação
-    st.markdown("### 📊 Classificação Completa")
+    st.markdown("### 🏅 Classificação Completa")
     
     show_details = st.toggle("Mostrar detalhes por etapa", value=False, key="detalhes_etapa")
     score_cols = st.session_state.get('etapas_scores_cols', [])
     score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
     
     # Preparar cabeçalhos da tabela
-    headers = ["Pos", "Equipe", "Impulso Total", "Avanço", "Progresso"]
+    headers = ["Pos", "Loja", "Bônus Total", "Progresso", "Avanço"]
     if show_details:
         headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
     
@@ -697,15 +729,15 @@ def render_geral_page():
         rank_class = f'rank-{rank}' if rank <= 3 else ''
         
         # Barra de progresso
-        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(row["Progresso"], 100)}%;'>{row["Progresso"]:.1f}%</div></div>"
+        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(row['Progresso'], 100)}%;'>{row['Progresso']:.1f}%</div></div>"
         
         # Linha da tabela
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
-        html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         html.append(f"<td>{prog_bar}</td>")
+        html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         
         # Colunas detalhadas (se habilitado)
         if show_details:
@@ -736,11 +768,11 @@ def render_loja_page():
         # Métricas da loja
         col1, col2, col3, col4 = st.columns(4)
         with col1: 
-            st.markdown(f'<div class="metric-card"><h3>Avanço na Pista</h3><h2>{loja_row["Posicao_Horas"]:.2f}h</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h3>Progresso Total</h3><h2>{loja_row["Posicao_Horas"]:.2f}h</h2></div>', unsafe_allow_html=True)
         with col2: 
-            st.markdown(f'<div class="metric-card"><h3>Impulso (Notas)</h3><h2>+{format_hours_and_minutes(loja_row["Boost_Total_Min"] / 60)}</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h3>Bônus (Pontos)</h3><h2>+{format_hours_and_minutes(loja_row["Boost_Total_Min"] / 60)}</h2></div>', unsafe_allow_html=True)
         with col3: 
-            st.markdown(f'<div class="metric-card"><h3>Progresso Total</h3><h2>{loja_row["Progresso"]:.1f}%</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h3>Percentual</h3><h2>{loja_row["Progresso"]:.1f}%</h2></div>', unsafe_allow_html=True)
         with col4: 
             st.markdown(f'<div class="metric-card"><h3>Posição Atual</h3><h2>#{loja_row["Rank"]}</h2></div>', unsafe_allow_html=True)
         
@@ -762,8 +794,8 @@ def render_loja_page():
                     
                     etapas_data.append({
                         'Etapa': etapa_name, 
-                        'Impulso Atual': score_atual, 
-                        'Impulso Máximo': peso_max, 
+                        'Bônus Atual': score_atual, 
+                        'Bônus Máximo': peso_max, 
                         'Gap': peso_max - score_atual,
                         'Percentual': percentual
                     })
@@ -774,12 +806,12 @@ def render_loja_page():
                 col_insight, col_chart = st.columns([1, 2])
                 
                 with col_insight:
-                    st.subheader("📈 Pontos de Melhoria")
-                    st.markdown("Oportunidades para ganhar impulso e avançar no circuito:")
+                    st.subheader("📈 Oportunidades de Melhoria")
+                    st.markdown("Áreas para ganhar mais bônus e avançar na competição:")
                     
                     top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
                     if top_melhorias.empty: 
-                        st.success("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!")
+                        st.success("🎉 Parabéns! A loja atingiu o bônus máximo em todas as etapas!")
                     else:
                         for _, row in top_melhorias.iterrows(): 
                             st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{format_hours_and_minutes(row['Gap'] / 60)}**.")
@@ -787,38 +819,28 @@ def render_loja_page():
                 with col_chart:
                     st.subheader("📊 Desempenho por Etapa")
                     
-                    # Gráfico de radar
+                    # Gráfico de barras horizontais
                     fig = go.Figure()
                     
-                    fig.add_trace(go.Scatterpolar(
-                        r=df_melhoria['Percentual'],
-                        theta=df_melhoria['Etapa'],
-                        fill='toself',
-                        fillcolor='rgba(255, 24, 1, 0.4)',
-                        line=dict(color=F1_COLORS['red'], width=2),
-                        name='Desempenho Atual'
+                    # Ordenar por percentual
+                    df_melhoria = df_melhoria.sort_values('Percentual', ascending=True)
+                    
+                    fig.add_trace(go.Bar(
+                        y=df_melhoria['Etapa'],
+                        x=df_melhoria['Percentual'],
+                        orientation='h',
+                        marker_color=COLORS['primary'],
+                        hovertemplate="<b>%{y}</b><br>Desempenho: %{x:.1f}%<extra></extra>"
                     ))
                     
                     fig.update_layout(
-                        polar=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            radialaxis=dict(
-                                visible=True, 
-                                range=[0, 100],
-                                tickfont=dict(color=F1_COLORS['white']),
-                                gridcolor=F1_COLORS['gray']
-                            ),
-                            angularaxis=dict(
-                                gridcolor=F1_COLORS['gray'],
-                                linecolor=F1_COLORS['gray'],
-                                tickfont=dict(color=F1_COLORS['white'])
-                            )
-                        ),
-                        showlegend=True,
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        font_color=F1_COLORS['white'],
-                        margin=dict(l=40, r=40, t=80, b=40),
-                        height=400
+                        xaxis_title="Desempenho (%)",
+                        yaxis_title="Etapas",
+                        plot_bgcolor=COLORS['background'],
+                        paper_bgcolor=COLORS['background'],
+                        font=dict(color=COLORS['secondary']),
+                        height=400,
+                        xaxis=dict(range=[0, 100])
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
@@ -843,18 +865,18 @@ def render_etapa_page():
         
         # Dados da etapa selecionada
         df_etapa = df_final[['Nome_Exibicao', col_name]].copy()
-        df_etapa.rename(columns={col_name: "Impulso na Etapa (min)"}, inplace=True)
-        df_etapa.sort_values("Impulso na Etapa (min)", ascending=False, inplace=True)
+        df_etapa.rename(columns={col_name: "Bônus na Etapa (min)"}, inplace=True)
+        df_etapa.sort_values("Bônus na Etapa (min)", ascending=False, inplace=True)
         
         # Calcular estatísticas
-        impulso_max = df_etapa["Impulso na Etapa (min)"].max()
-        impulso_medio = df_etapa["Impulso na Etapa (min)"].mean()
+        bonus_max = df_etapa["Bônus na Etapa (min)"].max()
+        bonus_medio = df_etapa["Bônus na Etapa (min)"].mean()
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown(f'<div class="metric-card"><h3>Maior Impulso</h3><h2>{format_hours_and_minutes(impulso_max / 60)}</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h3>Maior Bônus</h3><h2>{format_hours_and_minutes(bonus_max / 60)}</h2></div>', unsafe_allow_html=True)
         with col2:
-            st.markdown(f'<div class="metric-card"><h3>Impulso Médio</h3><h2>{format_hours_and_minutes(impulso_medio / 60)}</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h3>Bônus Médio</h3><h2>{format_hours_and_minutes(bonus_medio / 60)}</h2></div>', unsafe_allow_html=True)
         with col3:
             st.markdown(f'<div class="metric-card"><h3>Lojas Participantes</h3><h2>{len(df_etapa)}</h2></div>', unsafe_allow_html=True)
         
@@ -863,13 +885,13 @@ def render_etapa_page():
         # Formatar tabela
         df_display = df_etapa.head(10).copy()
         df_display["Posição"] = range(1, len(df_display) + 1)
-        df_display["Impulso na Etapa"] = df_display["Impulso na Etapa (min)"].apply(
+        df_display["Bônus na Etapa"] = df_display["Bônus na Etapa (min)"].apply(
             lambda x: format_hours_and_minutes(x / 60)
         )
         
         # Exibir tabela
         st.dataframe(
-            df_display[["Posição", "Nome_Exibicao", "Impulso na Etapa"]], 
+            df_display[["Posição", "Nome_Exibicao", "Bônus na Etapa"]], 
             use_container_width=True, 
             hide_index=True
         )
@@ -882,17 +904,17 @@ def render_etapa_page():
             
             fig.add_trace(go.Bar(
                 x=df_etapa.head(10)["Nome_Exibicao"],
-                y=df_etapa.head(10)["Impulso na Etapa (min)"] / 60,  # Converter para horas
-                marker_color=F1_COLORS['red'],
-                hovertemplate="<b>%{x}</b><br>Impulso: %{y:.2f}h<extra></extra>"
+                y=df_etapa.head(10)["Bônus na Etapa (min)"] / 60,  # Converter para horas
+                marker_color=COLORS['primary'],
+                hovertemplate="<b>%{x}</b><br>Bônus: %{y:.2f}h<extra></extra>"
             ))
             
             fig.update_layout(
                 xaxis_title="Lojas",
-                yaxis_title="Impulso (horas)",
-                plot_bgcolor=F1_COLORS['black'],
-                paper_bgcolor=F1_COLORS['black'],
-                font=dict(color=F1_COLORS['white']),
+                yaxis_title="Bônus (horas)",
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font=dict(color=COLORS['secondary']),
                 xaxis=dict(tickangle=45),
                 height=400
             )
@@ -959,7 +981,7 @@ def main():
         
         # Botões de navegação
         st.button(
-            "🏁 Visão Geral", 
+            "📊 Visão Geral", 
             on_click=set_page, 
             args=("Geral",), 
             use_container_width=True, 
@@ -998,7 +1020,7 @@ def main():
         
         # Renderizar cabeçalho
         render_header_and_periodo(
-            "Circuito MiniPreço F1", 
+            "Circuito MiniPreço", 
             st.session_state.ciclo, 
             st.session_state.get('duracao_horas', 0), 
             st.session_state.get('baseline_horas', 0)
