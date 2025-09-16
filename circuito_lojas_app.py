@@ -206,84 +206,39 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
                 f"</div>", unsafe_allow_html=True
             )
 
-def build_pista_fig(data, duracao_horas=60, offset_text=-0.35):
-    """
-    Constrói a pista de corrida com carrinhos e nomes das lojas.
-
-    Params:
-        data (pd.DataFrame): dataframe final com as colunas de cálculo.
-        duracao_horas (int): extensão horizontal da pista.
-        offset_text (float): deslocamento vertical dos nomes das lojas.
-    """
+def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
+    if data is None or data.empty: return go.Figure()
+    CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
     fig = go.Figure()
-
-    # Adiciona as faixas da pista
+    max_posicao_carro = data['Posicao_Horas'].max() if not data.empty else 0
+    limite_eixo = max(duracao_total_horas, max_posicao_carro)
     for i in range(len(data)):
-        fig.add_shape(
-            type="rect",
-            x0=0,
-            y0=i - 0.4,
-            x1=duracao_horas,
-            y1=i + 0.4,
-            fillcolor="gray" if i % 2 == 0 else "dimgray",
-            line=dict(width=0)
-        )
-
-    # Hover text seguro (usa .get para evitar KeyError)
-    hover_texts = [
-        f"Lugar: {row.get('Posicao', i+1)}<br>"
-        f"Loja: {row.get('Nome_Exibicao', '')}<br>"
-        f"Pontos: {row.get('Pontuacao', 0):.0f}<br>"
-        f"Meta: {row.get('Meta', 0):.0f}<br>"
-        f"Realizado: {row.get('Realizado', 0):.0f}<br>"
-        f"Cumprimento: {row.get('Cumprimento_Meta', 0):.1%}<br>"
-        f"Participação: {row.get('Participacao', 0):.1%}"
-        for i, (_, row) in enumerate(data.iterrows())
-    ]
-
-    # Adiciona os carrinhos (imagens)
-    for i, (x, img) in enumerate(zip(data.get('Posicao_Horas', []), data.get('Carro_Imagem', []))):
-        fig.add_layout_image(
-            dict(
-                source=img,
-                xref="x",
-                yref="y",
-                x=x,
-                y=i,
-                sizex=3,
-                sizey=0.6,
-                xanchor="center",
-                yanchor="middle",
-                layer="above"
-            )
-        )
-
-    # Adiciona os nomes das lojas abaixo dos carrinhos
-    y_text = data.index + offset_text
-    fig.add_trace(go.Scatter(
-        x=data.get('Posicao_Horas', [0]*len(data)),
-        y=y_text,
-        mode='text',
-        text=data.get('Nome_Exibicao', ['']*len(data)),
-        textposition="top center",
-        textfont=dict(color='white', size=11),
-        hoverinfo='text',
-        hovertext=hover_texts,
-        showlegend=False
-    ))
-
-    # Layout
-    fig.update_layout(
-        plot_bgcolor="black",
-        paper_bgcolor="black",
-        xaxis=dict(showgrid=False, zeroline=False, visible=False, range=[0, duracao_horas]),
-        yaxis=dict(showgrid=False, zeroline=False, visible=False, range=[-1, len(data)]),
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=60 * len(data),
-    )
-
-    return fig
+        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), fillcolor="#2C3E50", layer="below")
+    fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
+    square_size = max(0.5, duracao_total_horas / 40)
+    num_cols = 2 
+    for i in range(math.ceil((len(data)+0.5) / square_size)):
+        for j in range(num_cols):
+            color = "white" if (i + j) % 2 == 0 else "black"
+            fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
     
+    hover_texts = [
+        f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}"
+        for i, row in data.iterrows()
+    ]
+    
+    # Adiciona os Ícones dos Carros
+    for i, row in data.iterrows():
+        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.8, duracao_total_horas / 20), sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
+
+    # Adiciona os Nomes e a Interação por Cima dos Carros
+    fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=data.index, mode='text', text=data['Nome_Exibicao'], textposition="bottom center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
+    
+    fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
+    fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
+    fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
+    return fig
+
 def render_geral_page():
     st.header("Visão Geral da Corrida")
     df_final = st.session_state.get('df_final')
