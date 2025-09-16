@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO FINAL COM CORREÇÃO DE KEY_ERROR
+# circuito_lojas_app.py — VERSÃO COM LÓGICA DE PROGRESSO DIÁRIO CORRIGIDA
 
 import numpy as np
 import pandas as pd
@@ -49,13 +49,13 @@ st.markdown("""
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
-.race-table tr.zebra { background-color: rgba(255, 255, 255, 0.05); } /* Zebra mais visível */
+.race-table tr.zebra { background-color: rgba(255, 255, 255, 0.05); }
 .race-table tr:hover { background-color: #374151; }
 .rank-cell { font-weight: 900; font-size: 1.2em; text-align: center; }
-.rank-1 { color: #facc15; } /* Ouro */
-.rank-2 { color: #e5e7eb; } /* Prata */
-.rank-3 { color: #f59e0b; } /* Bronze */
-.loja-cell { font-weight: 800; color: #FFFFFF; font-size: 1.1em; } /* Nome da loja mais visível */
+.rank-1 { color: #facc15; }
+.rank-2 { color: #e5e7eb; }
+.rank-3 { color: #f59e0b; }
+.loja-cell { font-weight: 800; color: #FFFFFF; font-size: 1.1em; }
 .progress-bar-container { background-color: #374151; border-radius: 10px; overflow: hidden; height: 18px; width: 100%; min-width: 100px; }
 .progress-bar { background: linear-gradient(90deg, #38bdf8, #3b82f6); height: 100%; border-radius: 10px; text-align: center; color: white; font-size: 12px; line-height: 18px; font-weight: 600;}
 </style>
@@ -91,6 +91,7 @@ def get_race_duration_hours(ciclo: str):
 # ----------------------------------------------------------------------
 @st.cache_data(show_spinner="Processando dados...")
 def load_and_prepare_data(all_sheets: dict):
+    # (Função mantida como na versão anterior, sem alterações)
     all_data = []
     for sheet_name in ETAPA_SHEETS:
         if sheet_name in all_sheets:
@@ -110,33 +111,29 @@ def load_and_prepare_data(all_sheets: dict):
                 all_data.append(df_consolidado)
             except Exception: continue
     if not all_data: return pd.DataFrame(), [], pd.DataFrame()
-    
-    # Unifica os dados de todas as abas
     df_merged = pd.DataFrame(columns=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'])
     for df in all_data:
         df_merged = pd.merge(df_merged, df, on=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'], how='outer')
-
     month_order = list(MONTH_MAP.keys())
     df_merged['Ciclo_Cat'] = pd.Categorical(df_merged['Ciclo'], categories=month_order, ordered=True)
     df_merged.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao'], inplace=True, ignore_index=True)
-    
     for etapa in MONTHLY_ETAPAS:
         score_col = f"{etapa}_Score"
         if score_col in df_merged.columns:
             df_merged[score_col] = df_merged.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
-            
     etapas_scores_cols = [c for c in df_merged.columns if c.endswith('_Score')]
     periodos_df = df_merged[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
     return df_merged, etapas_scores_cols, periodos_df
 
 @st.cache_data(show_spinner=False)
-def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_total_horas: float):
+def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_total_horas: float, baseline_horas: float):
     df_copy = df.copy()
     for e in etapas_scores_cols:
         if e not in df_copy.columns: df_copy[e] = 0.0
     score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
     df_copy["Boost_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1)
-    df_copy["Posicao_Horas"] = df_copy["Boost_Total_Min"] / 60.0 # Posição é somente o boost
+    # LÓGICA RESTAURADA: Posição = Base (dia atual) + Boost
+    df_copy["Posicao_Horas"] = baseline_horas + (df_copy["Boost_Total_Min"] / 60.0)
     if duracao_total_horas > 0:
         df_copy["Progresso"] = (df_copy["Posicao_Horas"] / duracao_total_horas) * 100.0
     else:
@@ -148,32 +145,34 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
 
 @st.cache_data(show_spinner="Calculando ranking...")
 def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: list, ciclo: str, periodos: list):
-    if not ciclo or not periodos: return pd.DataFrame(), 0
+    if not ciclo or not periodos: return pd.DataFrame(), 0, 0
     df = data_original[data_original["Ciclo"] == str(ciclo)].copy()
     if "Todos" not in periodos:
         df = df[df["Periodo"].isin([str(p) for p in periodos])]
-    if df.empty: return pd.DataFrame(), 0
+    if df.empty: return pd.DataFrame(), 0, 0
     score_cols = [c for c in etapas_scores_cols if c in df.columns]
-    if not score_cols: return pd.DataFrame(), 0
-    
+    if not score_cols: return pd.DataFrame(), 0, 0
     id_vars = ['Loja', 'Nome_Exibicao']
-    aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=0) # Use min_count=0 para manter todas as lojas
+    aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=0)
     
-    for col in etapas_scores_cols:
-        if col not in aggregated.columns:
-            aggregated[col] = 0.0
-            
+    # LÓGICA RESTAURADA: Calcula a posição base se o ciclo for o mês atual
+    hoje = datetime.now()
+    baseline_horas = 0
+    if MONTH_MAP.get(ciclo) == hoje.month and hoje.year == 2025:
+        baseline_horas = hoje.day
+        
     duracao_horas = get_race_duration_hours(ciclo)
-    final_df = calculate_final_scores(aggregated, etapas_scores_cols, duracao_horas)
-    return final_df, duracao_horas
+    final_df = calculate_final_scores(aggregated, etapas_scores_cols, duracao_horas, baseline_horas)
+    return final_df, duracao_horas, baseline_horas
 
 # ----------------------------------------------------------------------
 # Funções de Renderização da Interface
 # ----------------------------------------------------------------------
-def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: float):
+def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: float, baseline_horas: float):
     st.markdown("<div class='app-header'>", unsafe_allow_html=True)
     st.markdown(f"<h1>{campaign_name}</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p>Ciclo: <b>{ciclo}</b> | Duração da corrida: <b>{duracao_horas:.0f} horas</b></p>", unsafe_allow_html=True)
+    baseline_str = f"| Posição Base (Dia Atual): <b>{baseline_horas:.0f} horas</b>" if baseline_horas > 0 else ""
+    st.markdown(f"<p>Ciclo: <b>{ciclo}</b> | Duração da corrida: <b>{duracao_horas:.0f} horas</b> {baseline_str}</p>", unsafe_allow_html=True)
     st.markdown("---")
 
 def render_podio_table(df_final: pd.DataFrame):
@@ -193,7 +192,7 @@ def render_podio_table(df_final: pd.DataFrame):
                     f"</div>", unsafe_allow_html=True
                 )
 
-def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
+def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float, baseline_horas: float) -> go.Figure:
     if data is None or data.empty: return go.Figure()
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
     fig = go.Figure()
@@ -203,7 +202,11 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=max_horas, y1=i+0.5, line=dict(width=0), fillcolor="#2C3E50", layer="below")
         
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
+    fig.add_annotation(x=0, y=len(data)-0.5, text="Partida", showarrow=False, xanchor="left", xshift=5, font=dict(color="#10B981"))
     
+    if baseline_horas > 0:
+        fig.add_vline(x=baseline_horas, line_width=2, line_dash="dot", line_color="cyan", annotation_text=f"Hoje (Dia {baseline_horas})", annotation_position="bottom right")
+        
     square_size = max_horas / 40
     num_cols = 2 
     for i in range(math.ceil((len(data)+0.5) / square_size)):
@@ -212,7 +215,12 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             fig.add_shape(type="rect", x0=max_horas + (j * square_size), y0=i*square_size - 0.5, x1=max_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
             
     for i, row in data.iterrows():
-        hover_text = (f"<b>{row.Nome_Exibicao}</b><br>Posição: {row.Posicao_Horas:.2f}h<br>Progresso: {row.Progresso:.1f}%<br>Boost: {format_minutes(row.Boost_Total_Min)}<br>Faltam: {format_minutes(row.Tempo_Faltante_Horas * 60)}<br>Rank: #{row.Rank}")
+        boost_horas = row.Boost_Total_Min / 60
+        hover_text = (f"<b>{row.Nome_Exibicao}</b><br><br>"
+                      f"Posição: <b>{row.Posicao_Horas:.2f}h</b><br>"
+                      f"<em>({baseline_horas:.0f}h de base + {boost_horas:.2f}h de boost)</em><br>"
+                      f"Progresso: {row.Progresso:.1f}%<br>"
+                      f"Rank: #{row.Rank}")
         fig.add_trace(go.Scatter(x=[row.Posicao_Horas], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
         fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row.Posicao_Horas, y=i, sizex=max(2, max_horas / 12), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
         fig.add_trace(go.Scatter(x=[row.Posicao_Horas], y=[i-0.55], mode="text", text=[row.Nome_Exibicao], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
@@ -232,15 +240,14 @@ def render_geral_page():
     render_podio_table(df_final)
     
     st.markdown("### Pista de Corrida do Circuito")
-    fig_pista = build_pista_fig(df_final, st.session_state.get('duracao_horas', 0))
+    fig_pista = build_pista_fig(df_final, st.session_state.get('duracao_horas', 0), st.session_state.get('baseline_horas', 0))
     st.plotly_chart(fig_pista, use_container_width=True)
 
     st.markdown("### Classificação Completa")
     show_details = st.toggle("Mostrar detalhes por etapa", value=False)
     
-    # *** CORREÇÃO DO KEYERROR AQUI ***
-    # Filtra as colunas de score que realmente têm dados para não poluir a tabela
-    score_cols_with_data = [col for col in st.session_state.etapas_scores_cols if col in df_final.columns and df_final[col].sum() > 0]
+    score_cols = st.session_state.get('etapas_scores_cols', [])
+    score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
     
     headers = ["Rank", "Loja", "Boost Total", "Posição", "Progresso"]
     if show_details:
@@ -249,18 +256,16 @@ def render_geral_page():
     html = [f"<table class='race-table'><thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead><tbody>"]
     
     for i, row in df_final.iterrows():
-        rank = row['Rank']
+        rank, zebra_class = row['Rank'], 'zebra' if i % 2 != 0 else ''
         rank_class = f'rank-{rank}' if rank <= 3 else ''
-        zebra_class = 'zebra' if i % 2 != 0 else ''
-        progresso_percent = row['Progresso']
-        progresso_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(progresso_percent, 100)}%;'>{progresso_percent:.1f}%</div></div>"
+        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(row['Progresso'], 100)}%;'>{row['Progresso']:.1f}%</div></div>"
         
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>+{format_minutes(row['Boost_Total_Min'])}</td>")
         html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
-        html.append(f"<td>{progresso_bar}</td>")
+        html.append(f"<td>{prog_bar}</td>")
         if show_details:
             for col in score_cols_with_data:
                  html.append(f"<td>{format_minutes(row[col])}</td>")
@@ -286,23 +291,20 @@ with st.sidebar:
     st.markdown("---<h3>Seleção de Ciclo e Período</h3>", unsafe_allow_html=True)
     ciclos_unicos = periodos_df["Ciclo"].dropna().unique().tolist() if not periodos_df.empty else []
     if not ciclos_unicos: st.stop()
-    
     sort_order_map = {name: i for i, name in enumerate(MONTH_MAP.keys())}
     sorted_ciclos = sorted(ciclos_unicos, key=lambda m: sort_order_map.get(m, -1))
-    
     ciclo_selecionado = st.selectbox("Selecione o Ciclo", sorted_ciclos, index=len(sorted_ciclos)-1)
     periodos_ciclo = sorted(periodos_df[periodos_df["Ciclo"] == ciclo_selecionado]["Periodo"].dropna().unique())
     periodos_selecionados = st.multiselect("Selecione os Períodos", ["Todos"] + periodos_ciclo, default=["Todos"])
     st.session_state.update({'ciclo': ciclo_selecionado, 'periodos': periodos_selecionados})
-    
     st.markdown("---<h3>Navegação</h3>", unsafe_allow_html=True)
     if st.button("Visão Geral", use_container_width=True, type="primary"): st.session_state.page = "Geral"
 
 if st.session_state.get('ciclo') and st.session_state.get('periodos'):
-    df_final, duracao_horas = filter_and_aggregate_data(st.session_state.data_original, st.session_state.etapas_scores_cols, st.session_state.ciclo, st.session_state.periodos)
-    st.session_state.update({'df_final': df_final, 'duracao_horas': duracao_horas})
+    df_final, duracao_horas, baseline_horas = filter_and_aggregate_data(st.session_state.data_original, st.session_state.etapas_scores_cols, st.session_state.ciclo, st.session_state.periodos)
+    st.session_state.update({'df_final': df_final, 'duracao_horas': duracao_horas, 'baseline_horas': baseline_horas})
     
-    render_header_and_periodo("Circuito MiniPreço", st.session_state.ciclo, st.session_state.get('duracao_horas', 0))
+    render_header_and_periodo("Circuito MiniPreço", st.session_state.ciclo, st.session_state.get('duracao_horas', 0), st.session_state.get('baseline_horas', 0))
     
     if st.session_state.page == "Geral":
         render_geral_page()
