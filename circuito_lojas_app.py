@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM TEXTOS EXPLICATIVOS E CARDS DE RESUMO
+# circuito_lojas_app.py — VERSÃO COM PÓDIO DETALHADO E NOVA NOMENCLATURA
 
 import numpy as np
 import pandas as pd
@@ -40,13 +40,19 @@ JOKER_ETAPAS = ["Meta"]
 # ----------------------------------------------------------------------
 st.markdown("""
 <style>
-/* Estilos mantidos da versão anterior */
+/* Estilos Gerais */
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
 .app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
 .app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
-.podio-card h2 { font-size: 2em; margin: 8px 0; }
+
+/* Estilos do Pódio */
+.podio-card h2 { font-size: 2em; margin: 8px 0 2px 0; }
 .podio-card h3 { font-size: 1.1em; margin: 0; }
-.podio-card p.boost-text { margin: 2px 0; font-size: 0.9em; opacity: 0.8; }
+.podio-card p.breakdown-text { margin: 0 0 8px 0; font-size: 0.8em; opacity: 0.7; }
+.podio-card p.progress-text { margin: 4px 0 0 0; font-size:0.9em; opacity: 0.9;}
+.podio-card p.remaining-text { margin: 2px 0 0 0; font-size:0.8em; opacity: 0.7;}
+
+/* Estilos da Tabela de Classificação */
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
@@ -81,13 +87,12 @@ def get_data_from_github():
         st.error(f"Erro ao carregar os dados do GitHub: {e}")
         return {}
 
-def format_minutes(minutes: float):
-    if pd.isna(minutes) or minutes < 0: return "-"
-    if minutes < 1: return f"0 min"
-    if minutes < 60: return f"{math.floor(minutes)} min"
-    hours = math.floor(minutes / 60)
-    rem_minutes = round(minutes % 60)
-    return f"{hours}h {rem_minutes}min"
+def format_hours_and_minutes(hours_float: float):
+    """Formata um float de horas para o formato Xh Ymin."""
+    if pd.isna(hours_float) or hours_float < 0: return "0h 00min"
+    hours = math.floor(hours_float)
+    minutes = round((hours_float - hours) * 60)
+    return f"{hours}h {minutes:02d}min"
 
 def get_race_duration_hours(ciclo: str):
     local_month_map = MONTH_DAYS_MAP.copy()
@@ -109,8 +114,7 @@ def load_and_prepare_data(all_sheets: dict):
                 df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
                 for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
                 if 'PesoDaEtapa' in df_etapa.columns:
-                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
-                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    nota_num, peso_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0), pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
                     df_etapa['Score_Etapa'] = nota_num * peso_num
                 else:
                     df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
@@ -140,8 +144,8 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
     for e in etapas_scores_cols:
         if e not in df_copy.columns: df_copy[e] = 0.0
     score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
-    df_copy["Boost_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1)
-    df_copy["Posicao_Horas"] = baseline_horas + (df_copy["Boost_Total_Min"] / 60.0)
+    df_copy["Impulso_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1)
+    df_copy["Posicao_Horas"] = baseline_horas + (df_copy["Impulso_Total_Min"] / 60.0)
     if duracao_total_horas > 0:
         df_copy["Progresso"] = (df_copy["Posicao_Horas"] / duracao_total_horas) * 100.0
     else:
@@ -160,12 +164,10 @@ def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: l
     if not score_cols: return pd.DataFrame(), 0, 0
     id_vars = ['Loja', 'Nome_Exibicao']
     aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=0)
-    
     hoje = datetime.now()
     baseline_horas = 0
     if MONTH_MAP.get(ciclo) == hoje.month and hoje.year == 2025:
         baseline_horas = hoje.day
-        
     duracao_horas = get_race_duration_hours(ciclo)
     final_df = calculate_final_scores(aggregated, etapas_scores_cols, duracao_horas, baseline_horas)
     return final_df, duracao_horas, baseline_horas
@@ -180,7 +182,7 @@ def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: floa
     st.markdown(f"<p>Ciclo: <b>{ciclo}</b> | Duração da corrida: <b>{duracao_horas:.0f} horas</b> {baseline_str}</p>", unsafe_allow_html=True)
     st.markdown("---")
 
-def render_podio_table(df_final: pd.DataFrame):
+def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
     st.markdown("### Pódio Atual")
     top3 = df_final.head(3)
     cols = st.columns(3)
@@ -191,40 +193,34 @@ def render_podio_table(df_final: pd.DataFrame):
                 st.markdown(
                     f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
                     f"<h3>{i+1}º — {row.Nome_Exibicao}</h3>"
-                    f"<h2>{row.Posicao_Horas:.1f}h</h2>"
-                    f"<p class='boost-text'>+{format_minutes(row.Boost_Total_Min)} de boost</p>"
-                    f"<p style='margin:8px 0 0 0; font-size:14px; opacity:0.9'>Progresso: {row.Progresso:.1f}%</p>"
+                    f"<h2>{format_hours_and_minutes(row.Posicao_Horas)}</h2>"
+                    f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row.Impulso_Total_Min / 60)} de Impulso)</p>"
+                    f"<p class='progress-text'>Progresso: {row.Progresso:.1f}%</p>"
+                    f"<p class='remaining-text'>Faltam: {format_hours_and_minutes(row.Tempo_Faltante_Horas)}</p>"
                     f"</div>", unsafe_allow_html=True
                 )
 
 def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
+    # (Função mantida como na versão anterior, sem alterações)
     if data is None or data.empty: return go.Figure()
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
     fig = go.Figure()
-
     max_posicao_carro = data['Posicao_Horas'].max() if not data.empty else 0
     limite_eixo = max(duracao_total_horas, max_posicao_carro)
-    
     for i in range(len(data)):
-        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, 
-                      line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), 
-                      fillcolor="#2C3E50", layer="below")
-        
+        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), fillcolor="#2C3E50", layer="below")
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
-    
     square_size = max(0.5, duracao_total_horas / 40)
     num_cols = 2 
     for i in range(math.ceil((len(data)+0.5) / square_size)):
         for j in range(num_cols):
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
-            
     for i, row in data.iterrows():
-        hover_text = (f"<b>{row.Nome_Exibicao}</b><br>Posição: {row.Posicao_Horas:.2f}h<br>Progresso: {row.Progresso:.1f}%<br>Boost: {format_minutes(row.Boost_Total_Min)}<br>Faltam: {format_minutes(row.Tempo_Faltante_Horas * 60)}<br>Rank: #{row.Rank}")
+        hover_text = (f"<b>{row.Nome_Exibicao}</b><br>Posição: {row.Posicao_Horas:.2f}h<br>Progresso: {row.Progresso:.1f}%<br>Impulso: {format_hours_and_minutes(row.Impulso_Total_Min / 60)}<br>Faltam: {format_hours_and_minutes(row.Tempo_Faltante_Horas)}<br>Rank: #{row.Rank}")
         fig.add_trace(go.Scatter(x=[row.Posicao_Horas], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
         fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row.Posicao_Horas, y=i, sizex=max(2, duracao_total_horas / 12), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
         fig.add_trace(go.Scatter(x=[row.Posicao_Horas], y=[i-0.55], mode="text", text=[row.Nome_Exibicao], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
-        
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
@@ -237,8 +233,6 @@ def render_geral_page():
         st.warning("Sem dados para exibir com a seleção atual.")
         return
         
-    st.info("💡 **Como funciona a corrida:** A posição na pista representa o trajeto percorrido. Ela é a soma da **posição base (dia atual do mês)** com o **avanço extra (boost)** conquistado com as notas. Cada dia do mês equivale a 1 hora de avanço.")
-
     duracao_horas = st.session_state.get('duracao_horas', 0)
     baseline_horas = st.session_state.get('baseline_horas', 0)
     dias_restantes = duracao_horas - baseline_horas
@@ -251,7 +245,7 @@ def render_geral_page():
     with col3:
         st.metric("Total de Lojas", f"{len(df_final)}")
         
-    render_podio_table(df_final)
+    render_podio_table(df_final, baseline_horas)
     
     st.markdown("### Pista de Corrida do Circuito")
     fig_pista = build_pista_fig(df_final, st.session_state.get('duracao_horas', 0))
@@ -263,7 +257,7 @@ def render_geral_page():
     score_cols = st.session_state.get('etapas_scores_cols', [])
     score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
     
-    headers = ["Rank", "Loja", "Boost Total", "Posição", "Progresso"]
+    headers = ["Rank", "Loja", "Impulso Total", "Posição", "Progresso"]
     if show_details:
         headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
     
@@ -277,12 +271,12 @@ def render_geral_page():
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
-        html.append(f"<td>+{format_minutes(row['Boost_Total_Min'])}</td>")
+        html.append(f"<td>+{format_hours_and_minutes(row['Impulso_Total_Min'] / 60)}</td>")
         html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         html.append(f"<td>{prog_bar}</td>")
         if show_details:
             for col in score_cols_with_data:
-                 html.append(f"<td>{format_minutes(row.get(col, 0))}</td>")
+                 html.append(f"<td>{format_hours_and_minutes(row.get(col, 0) / 60)}</td>")
         html.append("</tr>")
         
     html.append("</tbody></table>")
@@ -290,12 +284,10 @@ def render_geral_page():
 
 def render_loja_page():
     st.header("Visão por Loja")
-    # (Página mantida da versão anterior)
     st.info("Página em desenvolvimento.")
 
 def render_etapa_page():
     st.header("Visão por Etapa")
-    # (Página mantida da versão anterior)
     st.info("Página em desenvolvimento.")
 
 # ----------------------------------------------------------------------
