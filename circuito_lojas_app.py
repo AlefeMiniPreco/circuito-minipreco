@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM MELHORIAS DE CLAREZA E OTIMIZAÇÃO MOBILE
+# circuito_lojas_app.py — VERSÃO COM TEXTOS EXPLICATIVOS E CARDS DE RESUMO
 
 import numpy as np
 import pandas as pd
@@ -40,17 +40,13 @@ JOKER_ETAPAS = ["Meta"]
 # ----------------------------------------------------------------------
 st.markdown("""
 <style>
-/* Estilos Gerais */
+/* Estilos mantidos da versão anterior */
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
 .app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
 .app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
-
-/* Estilos do Pódio */
 .podio-card h2 { font-size: 2em; margin: 8px 0; }
 .podio-card h3 { font-size: 1.1em; margin: 0; }
 .podio-card p.boost-text { margin: 2px 0; font-size: 0.9em; opacity: 0.8; }
-
-/* Estilos da Tabela de Classificação de Corrida */
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
@@ -164,10 +160,12 @@ def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: l
     if not score_cols: return pd.DataFrame(), 0, 0
     id_vars = ['Loja', 'Nome_Exibicao']
     aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=0)
+    
     hoje = datetime.now()
     baseline_horas = 0
     if MONTH_MAP.get(ciclo) == hoje.month and hoje.year == 2025:
         baseline_horas = hoje.day
+        
     duracao_horas = get_race_duration_hours(ciclo)
     final_df = calculate_final_scores(aggregated, etapas_scores_cols, duracao_horas, baseline_horas)
     return final_df, duracao_horas, baseline_horas
@@ -214,7 +212,7 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
     
-    square_size = max(0.5, duracao_total_horas / 40) # Garante largura mínima para mobile
+    square_size = max(0.5, duracao_total_horas / 40)
     num_cols = 2 
     for i in range(math.ceil((len(data)+0.5) / square_size)):
         for j in range(num_cols):
@@ -233,28 +231,49 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     return fig
 
 def render_geral_page():
-    # (Função mantida como na versão anterior, sem alterações)
     st.header("Visão Geral da Corrida")
     df_final = st.session_state.get('df_final')
     if df_final is None or df_final.empty:
         st.warning("Sem dados para exibir com a seleção atual.")
         return
+        
+    st.info("💡 **Como funciona a corrida:** A posição na pista representa o trajeto percorrido. Ela é a soma da **posição base (dia atual do mês)** com o **avanço extra (boost)** conquistado com as notas. Cada dia do mês equivale a 1 hora de avanço.")
+
+    duracao_horas = st.session_state.get('duracao_horas', 0)
+    baseline_horas = st.session_state.get('baseline_horas', 0)
+    dias_restantes = duracao_horas - baseline_horas
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Tempo Restante da Corrida", f"{dias_restantes:.0f} dias" if dias_restantes >= 0 else "Finalizada")
+    with col2:
+        st.metric("Líder Atual", df_final['Nome_Exibicao'].iloc[0] if not df_final.empty else "N/A")
+    with col3:
+        st.metric("Total de Lojas", f"{len(df_final)}")
+        
     render_podio_table(df_final)
+    
     st.markdown("### Pista de Corrida do Circuito")
     fig_pista = build_pista_fig(df_final, st.session_state.get('duracao_horas', 0))
     st.plotly_chart(fig_pista, use_container_width=True)
+
     st.markdown("### Classificação Completa")
     show_details = st.toggle("Mostrar detalhes por etapa", value=False)
+    
     score_cols = st.session_state.get('etapas_scores_cols', [])
     score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
+    
     headers = ["Rank", "Loja", "Boost Total", "Posição", "Progresso"]
     if show_details:
         headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
+    
     html = [f"<table class='race-table'><thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead><tbody>"]
+    
     for i, row in df_final.iterrows():
         rank, zebra_class = row['Rank'], 'zebra' if i % 2 != 0 else ''
         rank_class = f'rank-{rank}' if rank <= 3 else ''
         prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(row['Progresso'], 100)}%;'>{row['Progresso']:.1f}%</div></div>"
+        
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
@@ -265,17 +284,18 @@ def render_geral_page():
             for col in score_cols_with_data:
                  html.append(f"<td>{format_minutes(row.get(col, 0))}</td>")
         html.append("</tr>")
+        
     html.append("</tbody></table>")
     st.markdown("".join(html), unsafe_allow_html=True)
 
 def render_loja_page():
-    # (Função mantida como na versão anterior)
     st.header("Visão por Loja")
+    # (Página mantida da versão anterior)
     st.info("Página em desenvolvimento.")
 
 def render_etapa_page():
-    # (Função mantida como na versão anterior)
     st.header("Visão por Etapa")
+    # (Página mantida da versão anterior)
     st.info("Página em desenvolvimento.")
 
 # ----------------------------------------------------------------------
