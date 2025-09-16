@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE KEY_ERROR NA PÁGINA DE LOJA
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DA PISTA MOBILE E HOVER
 
 import numpy as np
 import pandas as pd
@@ -208,12 +208,20 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
 
 def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure:
     if data is None or data.empty: return go.Figure()
+    
     CAR_ICON_URL = "https://raw.githubusercontent.com/AlefeMiniPreco/circuito-minipreco/main/assets/carro-corrida_anim.webp"
     fig = go.Figure()
+
     max_posicao_carro = data['Posicao_Horas'].max() if not data.empty else 0
     limite_eixo = max(duracao_total_horas, max_posicao_carro)
+    
+    # Desenha as pistas
     for i in range(len(data)):
-        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), fillcolor="#2C3E50", layer="below")
+        fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, 
+                      line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), 
+                      fillcolor="#2C3E50", layer="below")
+        
+    # Linhas de Partida e Chegada
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
     square_size = max(0.5, duracao_total_horas / 40)
     num_cols = 2 
@@ -221,11 +229,37 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         for j in range(num_cols):
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
+    
+    # Prepara dados para o gráfico de carros
+    hover_texts = []
     for i, row in data.iterrows():
-        hover_text = (f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
-        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='cyan', size=8), hoverinfo='none', showlegend=False))
-        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.2, duracao_total_horas / 25), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
-        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i-0.55], mode="text", text=[row['Nome_Exibicao']], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
+        hover_texts.append(
+            f"<b>{row['Nome_Exibicao']}</b><br><br>"
+            f"Avanço: {row['Posicao_Horas']:.2f}h<br>"
+            f"Progresso: {row['Progresso']:.1f}%<br>"
+            f"Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>"
+            f"Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>"
+            f"Rank: #{row['Rank']}"
+        )
+
+    # Adiciona os carros usando marcadores de imagem (mais robusto para mobile)
+    fig.add_trace(go.Scatter(
+        x=data['Posicao_Horas'],
+        y=data.index,
+        mode='markers+text',
+        marker=dict(
+            symbol='url(' + CAR_ICON_URL + ')',
+            size=50,
+            angle=0
+        ),
+        text=data['Nome_Exibicao'],
+        textposition="top center",
+        textfont=dict(color='white', size=10),
+        hoverinfo='text',
+        hovertext=hover_texts,
+        showlegend=False
+    ))
+
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
@@ -288,7 +322,6 @@ def render_loja_page():
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
         col1, col2, col3, col4 = st.columns(4)
-        # *** CORREÇÃO DO KEYERROR AQUI ***
         with col1: st.metric("Avanço na Pista", f"{loja_row['Posicao_Horas']:.2f}h")
         with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row['Boost_Total_Min'] / 60)}")
         with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
