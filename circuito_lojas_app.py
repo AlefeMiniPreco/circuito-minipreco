@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE CAMADA (LAYER) DO TEXTO
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE POSICIONAMENTO DO TEXTO
 
 import numpy as np
 import pandas as pd
@@ -221,12 +221,19 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         for j in range(num_cols):
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
-    hover_texts = []
-    for i, row in data.iterrows():
-        hover_texts.append(f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
-    fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=data.index, mode='text', text=data['Nome_Exibicao'], textposition="bottom center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
+    
+    hover_texts = [
+        f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}"
+        for i, row in data.iterrows()
+    ]
+    
+    # Adiciona os Ícones dos Carros
     for i, row in data.iterrows():
         fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.8, duracao_total_horas / 20), sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
+
+    # Adiciona os Nomes e a Interação por Cima dos Carros
+    fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=data.index, mode='text', text=data['Nome_Exibicao'], textposition="bottom center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
+    
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
