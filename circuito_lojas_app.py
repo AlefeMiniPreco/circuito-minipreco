@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE POSICIONAMENTO DO TEXTO
+# circuito_lojas_app.py — VERSÃO COM CORREÇÃO FINAL DE POSICIONAMENTO DO TEXTO (SUGESTÃO DO USUÁRIO)
 
 import numpy as np
 import pandas as pd
@@ -44,15 +44,11 @@ st.markdown("""
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
 .app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
 .app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
-
-/* Estilos do Pódio */
 .podio-card h2 { font-size: 2em; margin: 8px 0 2px 0; }
 .podio-card h3 { font-size: 1.1em; margin: 0; }
 .podio-card p.breakdown-text { margin: 0 0 8px 0; font-size: 0.8em; opacity: 0.7; }
 .podio-card p.progress-text { margin: 4px 0 0 0; font-size:0.9em; opacity: 0.9;}
 .podio-card p.remaining-text { margin: 2px 0 0 0; font-size:0.8em; opacity: 0.7;}
-
-/* Estilos da Tabela de Classificação */
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
@@ -65,8 +61,6 @@ st.markdown("""
 .loja-cell { font-weight: 800; color: #FFFFFF; font-size: 1.1em; }
 .progress-bar-container { background-color: #374151; border-radius: 10px; overflow: hidden; height: 18px; width: 100%; min-width: 100px; }
 .progress-bar { background: linear-gradient(90deg, #6EE7B7, #10B981); height: 100%; border-radius: 10px; text-align: center; color: white; font-size: 12px; line-height: 18px; font-weight: 600;}
-
-/* Media Query para Otimização Mobile */
 @media (max-width: 640px) {
     .app-header h1 { font-size: 28px !important; }
     .app-header p { font-size: 12px; }
@@ -231,8 +225,20 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     for i, row in data.iterrows():
         fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.8, duracao_total_horas / 20), sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
 
-    # Adiciona os Nomes e a Interação por Cima dos Carros
-    fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=data.index, mode='text', text=data['Nome_Exibicao'], textposition="bottom center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
+    # Adiciona os Nomes e a Interação (Hover/Toque) por Cima dos Carros
+    # APLICANDO A SUGESTÃO DO USUÁRIO PARA DESLOCAMENTO MANUAL DO TEXTO
+    y_text = data.index - 0.35  # Desloca o texto para baixo
+    fig.add_trace(go.Scatter(
+        x=data['Posicao_Horas'],
+        y=y_text,
+        mode='text',
+        text=data['Nome_Exibicao'],
+        textposition="top center",  # Ancora o texto pelo topo, no y deslocado
+        textfont=dict(color='white', size=10),
+        hoverinfo='text',
+        hovertext=hover_texts,
+        showlegend=False
+    ))
     
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
