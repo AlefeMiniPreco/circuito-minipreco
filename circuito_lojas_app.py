@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE KEY_ERROR E PÁGINAS RESTAURADAS
+# circuito_lojas_app.py — VERSÃO COM VISUALIZAÇÃO DE PISTA MAIS PRECISA
 
 import numpy as np
 import pandas as pd
@@ -108,7 +108,8 @@ def load_and_prepare_data(all_sheets: dict):
                 df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
                 for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
                 if 'PesoDaEtapa' in df_etapa.columns:
-                    nota_num, peso_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0), pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
                     df_etapa['Score_Etapa'] = nota_num * peso_num
                 else:
                     df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
@@ -144,7 +145,7 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
     for e in etapas_scores_cols:
         if e not in df_copy.columns: df_copy[e] = 0.0
     score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
-    df_copy["Boost_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1) # Nome interno
+    df_copy["Boost_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1)
     df_copy["Posicao_Horas"] = baseline_horas + (df_copy["Boost_Total_Min"] / 60.0)
     if duracao_total_horas > 0:
         df_copy["Progresso"] = (df_copy["Posicao_Horas"] / duracao_total_horas) * 100.0
@@ -183,6 +184,7 @@ def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: floa
     st.markdown("---")
 
 def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
+    # (Função mantida como na versão anterior, sem alterações)
     st.markdown("### Pódio Atual")
     top3 = df_final.head(3)
     cols = st.columns(3)
@@ -214,9 +216,13 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
     for i, row in data.iterrows():
+        # Marcador de Posição Exata
+        fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='cyan', size=8), hoverinfo='none', showlegend=False))
+        # Ícone do Carro (mais estreito)
+        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.2, duracao_total_horas / 25), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
+        # Texto Flutuante e Nome da Loja
         hover_text = (f"<b>{row['Nome_Exibicao']}</b><br>Posição: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}")
         fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i], mode='markers', marker=dict(color='rgba(0,0,0,0)', size=25), hoverinfo='text', hovertext=hover_text, showlegend=False))
-        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(2, duracao_total_horas / 12), sizey=0.85, xanchor="center", yanchor="middle", layer="above"))
         fig.add_trace(go.Scatter(x=[row['Posicao_Horas']], y=[i-0.55], mode="text", text=[row['Nome_Exibicao']], textfont=dict(size=9, color="rgba(255,255,255,0.9)"), hoverinfo="skip", showlegend=False))
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
@@ -280,6 +286,7 @@ def render_geral_page():
     st.markdown("".join(html), unsafe_allow_html=True)
 
 def render_loja_page():
+    # (Função restaurada da versão anterior)
     st.header("Visão por Loja")
     df_final = st.session_state.get('df_final')
     etapas_pesos_df = st.session_state.get('etapas_pesos_df', pd.DataFrame())
@@ -350,7 +357,7 @@ def render_etapa_page():
         df_etapa.sort_values("Impulso na Etapa (min)", ascending=False, inplace=True)
         
         st.subheader(f"Ranking da Etapa: {etapa_sel}")
-        st.dataframe(df_etapa.head(10), use_container_width=True, hide_index=True)
+        st.dataframe(df_etapa.head(10).reset_index(drop=True), use_container_width=True, hide_index=True)
 
 # ----------------------------------------------------------------------
 # Estrutura Principal do App
