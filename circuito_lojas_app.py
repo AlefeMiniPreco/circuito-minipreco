@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO FINAL COM CLASSIFICAÇÃO DETALHADA E PISTA AJUSTADA
+# circuito_lojas_app.py — VERSÃO FINAL COM CORREÇÃO DE KEY_ERROR
 
 import numpy as np
 import pandas as pd
@@ -33,7 +33,7 @@ ETAPA_SHEETS = [
     "Qualidade", "Meta"
 ]
 MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
-JOKER_ETAPAS = ["Meta"] 
+JOKER_ETAPAS = ["Meta"]
 
 # ----------------------------------------------------------------------
 # CSS (visuais)
@@ -73,7 +73,7 @@ def get_data_from_github():
 
 def format_minutes(minutes: float):
     if pd.isna(minutes) or minutes < 0: return "-"
-    if minutes < 1: return f"{minutes:.1f} min"
+    if minutes < 1: return f"0 min"
     if minutes < 60: return f"{math.floor(minutes)} min"
     hours = math.floor(minutes / 60)
     rem_minutes = round(minutes % 60)
@@ -91,8 +91,7 @@ def get_race_duration_hours(ciclo: str):
 # ----------------------------------------------------------------------
 @st.cache_data(show_spinner="Processando dados...")
 def load_and_prepare_data(all_sheets: dict):
-    # (Função mantida como na versão anterior, sem alterações)
-    all_data, pesos_records = [], []
+    all_data = []
     for sheet_name in ETAPA_SHEETS:
         if sheet_name in all_sheets:
             try:
@@ -109,25 +108,26 @@ def load_and_prepare_data(all_sheets: dict):
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
                 df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
                 all_data.append(df_consolidado)
-                if 'PesoDaEtapa' in df_etapa.columns and sheet_name not in JOKER_ETAPAS:
-                    pesos_gp = df_etapa.groupby(['Ciclo','Periodo'])['PesoDaEtapa'].sum().reset_index()
-                    pesos_gp['Etapa'] = f'{sheet_name}_Score'
-                    for _, r in pesos_gp.iterrows():
-                        pesos_records.append({'Etapa': r['Etapa'], 'Ciclo': str(r['Ciclo']), 'Periodo': str(r['Periodo']), 'PesoMaximo': float(r['PesoDaEtapa'])})
             except Exception: continue
-    if not all_data: return pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
-    combined_df = pd.concat(all_data, ignore_index=True)
+    if not all_data: return pd.DataFrame(), [], pd.DataFrame()
+    
+    # Unifica os dados de todas as abas
+    df_merged = pd.DataFrame(columns=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'])
+    for df in all_data:
+        df_merged = pd.merge(df_merged, df, on=['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo'], how='outer')
+
     month_order = list(MONTH_MAP.keys())
-    combined_df['Ciclo_Cat'] = pd.Categorical(combined_df['Ciclo'], categories=month_order, ordered=True)
-    combined_df.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao'], inplace=True, ignore_index=True)
+    df_merged['Ciclo_Cat'] = pd.Categorical(df_merged['Ciclo'], categories=month_order, ordered=True)
+    df_merged.sort_values(['Ciclo_Cat','Periodo','Nome_Exibicao'], inplace=True, ignore_index=True)
+    
     for etapa in MONTHLY_ETAPAS:
         score_col = f"{etapa}_Score"
-        if score_col in combined_df.columns:
-            combined_df[score_col] = combined_df.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
-    etapas_scores_cols = [c for c in combined_df.columns if c.endswith('_Score')]
-    periodos_df = combined_df[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
-    etapas_pesos_df = pd.DataFrame(pesos_records)
-    return combined_df, etapas_scores_cols, periodos_df, etapas_pesos_df
+        if score_col in df_merged.columns:
+            df_merged[score_col] = df_merged.groupby(['Loja', 'Ciclo'])[score_col].transform('max')
+            
+    etapas_scores_cols = [c for c in df_merged.columns if c.endswith('_Score')]
+    periodos_df = df_merged[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
+    return df_merged, etapas_scores_cols, periodos_df
 
 @st.cache_data(show_spinner=False)
 def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_total_horas: float):
@@ -156,11 +156,9 @@ def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: l
     score_cols = [c for c in etapas_scores_cols if c in df.columns]
     if not score_cols: return pd.DataFrame(), 0
     
-    # Agrupa e soma os scores de todas as etapas para cada loja
     id_vars = ['Loja', 'Nome_Exibicao']
-    aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=1)
+    aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=0) # Use min_count=0 para manter todas as lojas
     
-    # Garante que todas as colunas de score existam após o groupby
     for col in etapas_scores_cols:
         if col not in aggregated.columns:
             aggregated[col] = 0.0
@@ -240,29 +238,22 @@ def render_geral_page():
     st.markdown("### Classificação Completa")
     show_details = st.toggle("Mostrar detalhes por etapa", value=False)
     
-    score_cols_with_data = [col for col in st.session_state.etapas_scores_cols if df_final[col.replace('_Score','')].sum() > 0]
+    # *** CORREÇÃO DO KEYERROR AQUI ***
+    # Filtra as colunas de score que realmente têm dados para não poluir a tabela
+    score_cols_with_data = [col for col in st.session_state.etapas_scores_cols if col in df_final.columns and df_final[col].sum() > 0]
     
-    # Cabeçalho da tabela
     headers = ["Rank", "Loja", "Boost Total", "Posição", "Progresso"]
     if show_details:
         headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
     
     html = [f"<table class='race-table'><thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead><tbody>"]
     
-    # Corpo da tabela
     for i, row in df_final.iterrows():
         rank = row['Rank']
         rank_class = f'rank-{rank}' if rank <= 3 else ''
         zebra_class = 'zebra' if i % 2 != 0 else ''
-        
         progresso_percent = row['Progresso']
-        progresso_bar = f"""
-        <div class='progress-bar-container'>
-            <div class='progress-bar' style='width: {min(progresso_percent, 100)}%;'>
-                {progresso_percent:.1f}%
-            </div>
-        </div>
-        """
+        progresso_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(progresso_percent, 100)}%;'>{progresso_percent:.1f}%</div></div>"
         
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
@@ -270,11 +261,9 @@ def render_geral_page():
         html.append(f"<td>+{format_minutes(row['Boost_Total_Min'])}</td>")
         html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
         html.append(f"<td>{progresso_bar}</td>")
-        
         if show_details:
             for col in score_cols_with_data:
                  html.append(f"<td>{format_minutes(row[col])}</td>")
-                 
         html.append("</tr>")
         
     html.append("</tbody></table>")
@@ -289,8 +278,8 @@ with st.spinner("Carregando base de dados..."):
     all_sheets = get_data_from_github()
 if not all_sheets: st.stop()
 
-data, etapas_scores, periodos_df, etapas_pesos_df = load_and_prepare_data(all_sheets)
-st.session_state.update({'data_original': data, 'etapas_scores_cols': etapas_scores, 'periodos_df': periodos_df, 'etapas_pesos_df': etapas_pesos_df})
+data, etapas_scores, periodos_df = load_and_prepare_data(all_sheets)
+st.session_state.update({'data_original': data, 'etapas_scores_cols': etapas_scores, 'periodos_df': periodos_df})
 
 with st.sidebar:
     st.image("https://cdn-retailhub.com/minipreco/096c9b29-4ac3-425f-8322-be76b794f040.webp", use_container_width=True)
@@ -307,8 +296,7 @@ with st.sidebar:
     st.session_state.update({'ciclo': ciclo_selecionado, 'periodos': periodos_selecionados})
     
     st.markdown("---<h3>Navegação</h3>", unsafe_allow_html=True)
-    if st.button("Visão Geral", use_container_width=True, type="primary" if st.session_state.page == "Geral" else "secondary"): st.session_state.page = "Geral"
-    # O botão para a página da loja pode ser adicionado aqui se necessário
+    if st.button("Visão Geral", use_container_width=True, type="primary"): st.session_state.page = "Geral"
 
 if st.session_state.get('ciclo') and st.session_state.get('periodos'):
     df_final, duracao_horas = filter_and_aggregate_data(st.session_state.data_original, st.session_state.etapas_scores_cols, st.session_state.ciclo, st.session_state.periodos)
