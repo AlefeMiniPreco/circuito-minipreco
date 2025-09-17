@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM TABELA E VISÃO DE LOJA FOCADAS EM TEMPO RESTANTE
+# circuito_lojas_app.py — VERSÃO COM ANIMAÇÕES E MELHORIAS VISUAIS
 
 import numpy as np
 import pandas as pd
@@ -7,6 +7,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 import math
+import time
 
 # ----------------------------------------------------------------------
 # Configuração inicial do Streamlit
@@ -61,6 +62,35 @@ st.markdown("""
 .loja-cell { font-weight: 800; color: #FFFFFF; font-size: 1.1em; }
 .progress-bar-container { background-color: #374151; border-radius: 10px; overflow: hidden; height: 18px; width: 100%; min-width: 100px; }
 .progress-bar { background: linear-gradient(90deg, #6EE7B7, #10B981); height: 100%; border-radius: 10px; text-align: center; color: white; font-size: 12px; line-height: 18px; font-weight: 600;}
+
+/* Animações */
+@keyframes carAnimation {
+    from { transform: translateX(-50px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+.animated-car {
+    animation: carAnimation 1.5s ease-out forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 1s ease-out forwards;
+}
+
+@keyframes progressBarAnimation {
+    from { width: 0%; }
+    to { width: var(--progress-width); }
+}
+
+.animated-progress-bar {
+    animation: progressBarAnimation 1.5s ease-out forwards;
+}
+
 @media (max-width: 640px) {
     .app-header h1 { font-size: 28px !important; }
     .app-header p { font-size: 12px; }
@@ -192,7 +222,7 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
     for i, row in top3.iterrows():
         with cols[i]:
             st.markdown(
-                f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
+                f"<div class='podio-card fade-in' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151; animation-delay: {i*0.2}s;'>"
                 f"<h3>{row['Rank']}º — {row['Nome_Exibicao']}</h3>"
                 f"<p class='metric-label'>Tempo Restante</p>"
                 f"<h2>{format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</h2>"
@@ -207,26 +237,104 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     fig = go.Figure()
     max_posicao_carro = data['Posicao_Horas'].max() if not data.empty else 0
     limite_eixo = max(duracao_total_horas, max_posicao_carro)
+    
+    # Adicionar faixas da pista
     for i in range(len(data)):
         fig.add_shape(type="rect", x0=0, y0=i-0.5, x1=limite_eixo, y1=i+0.5, line=dict(color='rgba(255, 255, 255, 0.1)', width=1.5), fillcolor="#2C3E50", layer="below")
+    
+    # Linha de partida
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
+    
+    # Bandeira de chegada
     square_size = max(0.5, duracao_total_horas / 40)
     num_cols = 2 
     for i in range(math.ceil((len(data)+0.5) / square_size)):
         for j in range(num_cols):
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
+    
+    # Texto com informações
     hover_texts = [
         f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}"
         for i, row in data.iterrows()
     ]
     y_text = data.index - 0.35
     fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=y_text, mode='text', text=data['Nome_Exibicao'], textposition="top center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
+    
+    # Adicionar carros com animação
     for i, row in data.iterrows():
-        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.8, duracao_total_horas / 20), sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
-    fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
-    fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
-    fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
+        fig.add_layout_image(dict(
+            source=CAR_ICON_URL, 
+            xref="x", 
+            yref="y", 
+            x=row['Posicao_Horas'], 
+            y=i, 
+            sizex=max(1.8, duracao_total_horas / 20), 
+            sizey=0.9, 
+            layer="below", 
+            xanchor="center", 
+            yanchor="middle"
+        ))
+    
+    # Configuração dos eixos e layout
+    fig.update_xaxes(
+        range=[-limite_eixo*0.02, limite_eixo * 1.05], 
+        title_text="Avanço na Pista (dias/horas) →", 
+        fixedrange=True, 
+        tick0=0, 
+        dtick=1, 
+        showgrid=False
+    )
+    fig.update_yaxes(
+        showgrid=False, 
+        zeroline=False, 
+        tickvals=list(range(len(data))), 
+        ticktext=[], 
+        fixedrange=True
+    )
+    
+    # Adicionar animação para os carros
+    fig.update_layout(
+        height=max(600, 300 + 60*len(data)), 
+        margin=dict(l=10, r=10, t=80, b=40), 
+        plot_bgcolor="#1A2A3A", 
+        paper_bgcolor="rgba(26,42,58,0.7)",
+        updatemenus=[{
+            "type": "buttons",
+            "showactive": False,
+            "buttons": [{
+                "label": "Play Animação",
+                "method": "animate",
+                "args": [None, {
+                    "frame": {"duration": 1000, "redraw": True},
+                    "fromcurrent": True,
+                    "transition": {"duration": 500, "easing": "linear"}
+                }]
+            }]
+        }]
+    )
+    
+    # Criar frames para animação
+    frames = []
+    for progress in np.linspace(0, 1, 20):  # 20 frames para animação suave
+        frame_data = []
+        for i, row in data.iterrows():
+            # Posição animada do carro (começando em 0 e indo até a posição atual)
+            animated_x = row['Posicao_Horas'] * progress
+            frame_data.append(go.LayoutImage(
+                x=animated_x,
+                y=i,
+                sizex=max(1.8, duracao_total_horas / 20),
+                sizey=0.9,
+                xanchor="center",
+                yanchor="middle",
+                source=CAR_ICON_URL
+            ))
+        
+        frames.append(go.Frame(data=[], layout=go.Layout(images=frame_data)))
+    
+    fig.frames = frames
+    
     return fig
 
 def render_geral_page():
@@ -238,23 +346,34 @@ def render_geral_page():
     duracao_horas = st.session_state.get('duracao_horas', 0)
     baseline_horas = st.session_state.get('baseline_horas', 0)
     dias_restantes = duracao_horas - baseline_horas
+    
+    # Métricas com animação
     col1, col2, col3 = st.columns(3)
     with col1:
+        st.markdown(f'<div class="fade-in" style="animation-delay: 0.1s;">', unsafe_allow_html=True)
         st.metric("Término da Corrida", f"{dias_restantes:.0f} dias" if dias_restantes >= 0 else "Finalizada")
+        st.markdown('</div>', unsafe_allow_html=True)
     with col2:
+        st.markdown(f'<div class="fade-in" style="animation-delay: 0.2s;">', unsafe_allow_html=True)
         st.metric("Líder Atual", df_final['Nome_Exibicao'].iloc[0] if not df_final.empty else "N/A")
+        st.markdown('</div>', unsafe_allow_html=True)
     with col3:
+        st.markdown(f'<div class="fade-in" style="animation-delay: 0.3s;">', unsafe_allow_html=True)
         st.metric("Total de Lojas", f"{len(df_final)}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
     render_podio_table(df_final, baseline_horas)
+    
     st.markdown("### Pista de Corrida do Circuito")
     fig_pista = build_pista_fig(df_final, st.session_state.get('duracao_horas', 0))
     st.plotly_chart(fig_pista, use_container_width=True)
+    
     st.markdown("### Classificação Completa")
     show_details = st.toggle("Mostrar detalhes por etapa", value=False)
     score_cols = st.session_state.get('etapas_scores_cols', [])
     score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
     
-    # MUDANÇA AQUI: Cabeçalho da tabela focado em Tempo Restante
+    # Tabela com animação
     headers = ["Rank", "Loja", "Tempo Restante", "Progresso", "Impulso Total"]
     if show_details:
         headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
@@ -264,12 +383,11 @@ def render_geral_page():
     for i, row in df_final.iterrows():
         rank, zebra_class = row['Rank'], 'zebra' if i % 2 != 0 else ''
         rank_class = f'rank-{rank}' if rank <= 3 else ''
-        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(row['Progresso'], 100)}%;'>{row['Progresso']:.1f}%</div></div>"
+        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar animated-progress-bar' style='--progress-width: {min(row['Progresso'], 100)}%; width: {min(row['Progresso'], 100)}%;'>{row['Progresso']:.1f}%</div></div>"
         
-        html.append(f"<tr class='{zebra_class}'>")
+        html.append(f"<tr class='{zebra_class} fade-in' style='animation-delay: {i*0.05}s;'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
-        # MUDANÇA AQUI: Coluna principal agora é Tempo Restante
         html.append(f"<td>{format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</td>")
         html.append(f"<td>{prog_bar}</td>")
         html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
@@ -289,17 +407,31 @@ def render_loja_page():
     if df_final is None or df_final.empty:
         st.warning("Selecione um Ciclo para ver os detalhes da loja.")
         return
+    
     loja_options = sorted(df_final["Nome_Exibicao"].unique().tolist())
     loja_sel = st.selectbox("Selecione a Loja:", loja_options)
+    
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
         
-        # MUDANÇA AQUI: Métricas focadas em Tempo Restante
+        # Métricas com animação
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Tempo Restante", format_hours_and_minutes(loja_row['Tempo_Faltante_Horas']))
-        with col2: st.metric("Avanço na Pista", format_hours_and_minutes(loja_row['Posicao_Horas']))
-        with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
-        with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
+        with col1: 
+            st.markdown(f'<div class="fade-in" style="animation-delay: 0.1s;">', unsafe_allow_html=True)
+            st.metric("Tempo Restante", format_hours_and_minutes(loja_row['Tempo_Faltante_Horas']))
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col2: 
+            st.markdown(f'<div class="fade-in" style="animation-delay: 0.2s;">', unsafe_allow_html=True)
+            st.metric("Avanço na Pista", format_hours_and_minutes(loja_row['Posicao_Horas']))
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col3: 
+            st.markdown(f'<div class="fade-in" style="animation-delay: 0.3s;">', unsafe_allow_html=True)
+            st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col4: 
+            st.markdown(f'<div class="fade-in" style="animation-delay: 0.4s;">', unsafe_allow_html=True)
+            st.metric("Rank Atual", f"#{loja_row['Rank']}")
+            st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown("---")
         ciclo = st.session_state.ciclo
@@ -319,15 +451,79 @@ def render_loja_page():
                     st.subheader("Pontos de Melhoria")
                     st.markdown("Oportunidades para ganhar impulso e avançar no circuito:")
                     top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
-                    if top_melhorias.empty: st.success("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!")
+                    if top_melhorias.empty: 
+                        st.success("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!")
                     else:
-                        for _, row in top_melhorias.iterrows(): st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{format_hours_and_minutes(row['Gap'] / 60)}**.")
+                        for idx, (_, row) in enumerate(top_melhorias.iterrows()): 
+                            st.markdown(f'<div class="fade-in" style="animation-delay: {idx*0.2}s;">', unsafe_allow_html=True)
+                            st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{format_hours_and_minutes(row['Gap'] / 60)}**.")
+                            st.markdown('</div>', unsafe_allow_html=True)
                 with col_chart:
                     st.subheader("Desempenho por Etapa")
                     fig = go.Figure()
-                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Máximo'], theta=df_melhoria['Etapa'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)'), name='Impulso Máximo'))
-                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Atual'], theta=df_melhoria['Etapa'], fill='toself', fillcolor='rgba(0, 176, 246, 0.4)', line=dict(color='rgba(0, 176, 246, 1)'), name='Impulso Atual'))
-                    fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Impulso Máximo'].max() * 1.1 if not df_melhoria.empty else 1])), showlegend=True, paper_bgcolor="rgba(0,0,0,0)", font_color="white", margin=dict(l=40, r=40, t=80, b=40))
+                    fig.add_trace(go.Scatterpolar(
+                        r=df_melhoria['Impulso Máximo'], 
+                        theta=df_melhoria['Etapa'], 
+                        mode='lines', 
+                        line=dict(color='rgba(255, 255, 255, 0.4)'), 
+                        name='Impulso Máximo'
+                    ))
+                    fig.add_trace(go.Scatterpolar(
+                        r=df_melhoria['Impulso Atual'], 
+                        theta=df_melhoria['Etapa'], 
+                        fill='toself', 
+                        fillcolor='rgba(0, 176, 246, 0.4)', 
+                        line=dict(color='rgba(0, 176, 246, 1)'), 
+                        name='Impulso Atual'
+                    ))
+                    
+                    # Remover escala do radar
+                    fig.update_layout(
+                        polar=dict(
+                            bgcolor="rgba(0,0,0,0)", 
+                            radialaxis=dict(
+                                visible=False,  # Remover a escala numérica
+                                showticklabels=False  # Remover os rótulos dos ticks
+                            )
+                        ), 
+                        showlegend=True, 
+                        paper_bgcolor="rgba(0,0,0,0)", 
+                        font_color="white", 
+                        margin=dict(l=40, r=40, t=80, b=40)
+                    )
+                    
+                    # Adicionar animação ao gráfico de radar
+                    fig.update_layout(
+                        updatemenus=[{
+                            "type": "buttons",
+                            "showactive": False,
+                            "buttons": [{
+                                "label": "Play Animação",
+                                "method": "animate",
+                                "args": [None, {
+                                    "frame": {"duration": 1000, "redraw": True},
+                                    "fromcurrent": True,
+                                    "transition": {"duration": 500, "easing": "linear"}
+                                }]
+                            }]
+                        }]
+                    )
+                    
+                    # Criar frames para animação do radar
+                    frames = []
+                    for progress in np.linspace(0, 1, 10):
+                        frame_data = go.Scatterpolar(
+                            r=df_melhoria['Impulso Atual'] * progress,
+                            theta=df_melhoria['Etapa'],
+                            fill='toself',
+                            fillcolor='rgba(0, 176, 246, 0.4)',
+                            line=dict(color='rgba(0, 176, 246, 1)'),
+                            name='Impulso Atual'
+                        )
+                        frames.append(go.Frame(data=[frame_data]))
+                    
+                    fig.frames = frames
+                    
                     st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
@@ -337,14 +533,74 @@ def render_etapa_page():
     if df_final is None or df_final.empty:
         st.warning("Selecione um Ciclo para ver os detalhes da etapa.")
         return
+    
     etapa_options = [c.replace('_Score', '') for c in etapas_scores_cols if c in df_final.columns and df_final[c].sum() > 0]
     etapa_sel = st.selectbox("Selecione a Etapa:", sorted(etapa_options))
+    
     if etapa_sel:
         col_name = f"{etapa_sel}_Score"
         df_etapa = df_final[['Nome_Exibicao', col_name]].copy()
         df_etapa.rename(columns={col_name: "Impulso na Etapa (min)"}, inplace=True)
         df_etapa.sort_values("Impulso na Etapa (min)", ascending=False, inplace=True)
+        
         st.subheader(f"Ranking da Etapa: {etapa_sel}")
+        
+        # Gráfico de barras animado para a etapa
+        fig = go.Figure()
+        
+        # Adicionar barras com animação
+        fig.add_trace(go.Bar(
+            x=df_etapa.head(10)["Impulso na Etapa (min)"],
+            y=df_etapa.head(10)["Nome_Exibicao"],
+            orientation='h',
+            marker=dict(color='#6EE7B7'),
+            name=etapa_sel
+        ))
+        
+        # Configurar animação
+        fig.update_layout(
+            updatemenus=[{
+                "type": "buttons",
+                "showactive": False,
+                "buttons": [{
+                    "label": "Play Animação",
+                    "method": "animate",
+                    "args": [None, {
+                        "frame": {"duration": 500, "redraw": True},
+                        "fromcurrent": True,
+                        "transition": {"duration": 300, "easing": "linear"}
+                    }]
+                }]
+            }]
+        )
+        
+        # Criar frames para animação das barras
+        frames = []
+        for progress in np.linspace(0, 1, 10):
+            frame_data = go.Bar(
+                x=df_etapa.head(10)["Impulso na Etapa (min)"] * progress,
+                y=df_etapa.head(10)["Nome_Exibicao"],
+                orientation='h',
+                marker=dict(color='#6EE7B7'),
+                name=etapa_sel
+            )
+            frames.append(go.Frame(data=[frame_data]))
+        
+        fig.frames = frames
+        
+        fig.update_layout(
+            height=400,
+            showlegend=False,
+            xaxis_title="Impulso na Etapa (minutos)",
+            yaxis_title="Lojas",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="white"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabela com os dados
         st.dataframe(df_etapa.head(10).reset_index(drop=True), use_container_width=True, hide_index=True)
 
 # ----------------------------------------------------------------------
