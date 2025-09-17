@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM GRÁFICO DE RADAR REDESENHADO
+# circuito_lojas_app.py — VERSÃO COM TABELA E VISÃO DE LOJA FOCADAS EM TEMPO RESTANTE
 
 import numpy as np
 import pandas as pd
@@ -36,7 +36,7 @@ MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
 JOKER_ETAPAS = ["Meta"]
 
 # ----------------------------------------------------------------------
-# CSS (visuais)
+# CSS (visuais com otimização para Mobile)
 # ----------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -86,7 +86,8 @@ def set_page(page_name):
     st.session_state.page = page_name
 
 def format_hours_and_minutes(hours_float: float):
-    if pd.isna(hours_float) or hours_float is None or hours_float < 0: return "0h 00min"
+    if pd.isna(hours_float): return "N/A"
+    if hours_float < 0: return "Finalizou!"
     hours = math.floor(hours_float)
     minutes = round((hours_float - hours) * 60)
     return f"{hours}h {minutes:02d}min"
@@ -110,8 +111,7 @@ def load_and_prepare_data(all_sheets: dict):
                 df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
                 for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
                 if 'PesoDaEtapa' in df_etapa.columns:
-                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
-                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    nota_num, peso_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0), pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
                     df_etapa['Score_Etapa'] = nota_num * peso_num
                 else:
                     df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
@@ -153,7 +153,7 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
         df_copy["Progresso"] = (df_copy["Posicao_Horas"] / duracao_total_horas) * 100.0
     else:
         df_copy["Progresso"] = 0.0
-    df_copy["Tempo_Faltante_Horas"] = (duracao_total_horas - df_copy["Posicao_Horas"]).clip(lower=0)
+    df_copy["Tempo_Faltante_Horas"] = duracao_total_horas - df_copy["Posicao_Horas"]
     df_copy["Rank"] = df_copy["Posicao_Horas"].rank(method="dense", ascending=False).astype(int)
     df_copy.sort_values(["Posicao_Horas","Nome_Exibicao"], ascending=[False,True], inplace=True, ignore_index=True)
     return df_copy
@@ -193,11 +193,11 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
         with cols[i]:
             st.markdown(
                 f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
-                f"<h3>{row.get('Rank', 0)}º — {row.get('Nome_Exibicao', 'N/A')}</h3>"
-                f"<h2>{format_hours_and_minutes(row.get('Posicao_Horas', 0))}</h2>"
-                f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row.get('Boost_Total_Min', 0) / 60)} de Impulso)</p>"
-                f"<p class='progress-text'>Progresso: {row.get('Progresso', 0):.1f}%</p>"
-                f"<p class='remaining-text'>Faltam: {format_hours_and_minutes(row.get('Tempo_Faltante_Horas', 0))}</p>"
+                f"<h3>{row['Rank']}º — {row['Nome_Exibicao']}</h3>"
+                f"<p class='metric-label'>Tempo Restante</p>"
+                f"<h2>{format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</h2>"
+                f"<p class='secondary-metric'>Avanço: {format_hours_and_minutes(row['Posicao_Horas'])}</p>"
+                f"<p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>"
                 f"</div>", unsafe_allow_html=True
             )
 
@@ -216,18 +216,20 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         for j in range(num_cols):
             color = "white" if (i + j) % 2 == 0 else "black"
             fig.add_shape(type="rect", x0=duracao_total_horas + (j * square_size), y0=i*square_size - 0.5, x1=duracao_total_horas + ((j+1) * square_size), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
-    hover_texts = [f"<b>{row.get('Nome_Exibicao', 'N/A')}</b><br>Avanço: {row.get('Posicao_Horas', 0):.2f}h<br>Progresso: {row.get('Progresso', 0):.1f}%<br>Impulso: {format_hours_and_minutes(row.get('Boost_Total_Min', 0) / 60)}<br>Faltam: {format_hours_and_minutes(row.get('Tempo_Faltante_Horas', 0))}<br>Rank: #{row.get('Rank', 0)}" for i, row in data.iterrows()]
+    hover_texts = [
+        f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {row['Posicao_Horas']:.2f}h<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_hours_and_minutes(row['Boost_Total_Min'] / 60)}<br>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}<br>Rank: #{row['Rank']}"
+        for i, row in data.iterrows()
+    ]
     y_text = data.index - 0.35
     fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=y_text, mode='text', text=data['Nome_Exibicao'], textposition="top center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
     for i, row in data.iterrows():
-        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row.get('Posicao_Horas', 0), y=i, sizex=max(1.8, duracao_total_horas / 20), sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
+        fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Horas'], y=i, sizex=max(1.8, duracao_total_horas / 20), sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
     fig.update_xaxes(range=[-limite_eixo*0.02, limite_eixo * 1.05], title_text="Avanço na Pista (dias/horas) →", fixedrange=True, tick0=0, dtick=1, showgrid=False)
     fig.update_yaxes(showgrid=False, zeroline=False, tickvals=list(range(len(data))), ticktext=[], fixedrange=True)
     fig.update_layout(height=max(600, 300 + 60*len(data)), margin=dict(l=10, r=10, t=80, b=40), plot_bgcolor="#1A2A3A", paper_bgcolor="rgba(26,42,58,0.7)")
     return fig
 
 def render_geral_page():
-    # (código mantido como na versão anterior, sem alterações)
     st.header("Visão Geral da Corrida")
     df_final = st.session_state.get('df_final')
     if df_final is None or df_final.empty:
@@ -251,26 +253,32 @@ def render_geral_page():
     show_details = st.toggle("Mostrar detalhes por etapa", value=False)
     score_cols = st.session_state.get('etapas_scores_cols', [])
     score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
-    headers = ["Rank", "Loja", "Impulso Total", "Avanço", "Progresso"]
+    
+    # MUDANÇA AQUI: Cabeçalho da tabela focado em Tempo Restante
+    headers = ["Rank", "Loja", "Tempo Restante", "Progresso", "Impulso Total"]
     if show_details:
         headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
+    
     html = [f"<table class='race-table'><thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead><tbody>"]
+    
     for i, row in df_final.iterrows():
-        rank = row.get('Rank', 0)
-        zebra_class = 'zebra' if i % 2 != 0 else ''
+        rank, zebra_class = row['Rank'], 'zebra' if i % 2 != 0 else ''
         rank_class = f'rank-{rank}' if rank <= 3 else ''
-        progresso = row.get('Progresso', 0)
-        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(progresso, 100)}%;'>{progresso:.1f}%</div></div>"
+        prog_bar = f"<div class='progress-bar-container'><div class='progress-bar' style='width: {min(row['Progresso'], 100)}%;'>{row['Progresso']:.1f}%</div></div>"
+        
         html.append(f"<tr class='{zebra_class}'>")
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
-        html.append(f"<td class='loja-cell'>{row.get('Nome_Exibicao', 'N/A')}</td>")
-        html.append(f"<td>+{format_hours_and_minutes(row.get('Boost_Total_Min', 0) / 60)}</td>")
-        html.append(f"<td>{format_hours_and_minutes(row.get('Posicao_Horas', 0))}</td>")
+        html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
+        # MUDANÇA AQUI: Coluna principal agora é Tempo Restante
+        html.append(f"<td>{format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</td>")
         html.append(f"<td>{prog_bar}</td>")
+        html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
+
         if show_details:
             for col in score_cols_with_data:
                  html.append(f"<td>{format_hours_and_minutes(row.get(col, 0) / 60)}</td>")
         html.append("</tr>")
+        
     html.append("</tbody></table>")
     st.markdown("".join(html), unsafe_allow_html=True)
 
@@ -285,11 +293,14 @@ def render_loja_page():
     loja_sel = st.selectbox("Selecione a Loja:", loja_options)
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
+        
+        # MUDANÇA AQUI: Métricas focadas em Tempo Restante
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Avanço na Pista", format_hours_and_minutes(loja_row.get('Posicao_Horas', 0)))
-        with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row.get('Boost_Total_Min', 0) / 60)}")
-        with col3: st.metric("Progresso Total", f"{loja_row.get('Progresso', 0):.1f}%")
-        with col4: st.metric("Rank Atual", f"#{loja_row.get('Rank', 0)}")
+        with col1: st.metric("Tempo Restante", format_hours_and_minutes(loja_row['Tempo_Faltante_Horas']))
+        with col2: st.metric("Avanço na Pista", format_hours_and_minutes(loja_row['Posicao_Horas']))
+        with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
+        with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
+        
         st.markdown("---")
         ciclo = st.session_state.ciclo
         if not etapas_pesos_df.empty:
@@ -299,10 +310,8 @@ def render_loja_page():
             for etapa_col in st.session_state.etapas_scores_cols:
                 peso_max = pesos_etapas.get(etapa_col, 0)
                 if peso_max > 0:
-                    etapa_name = etapa_col.replace('_Score', '')
-                    score_atual = loja_row.get(etapa_col, 0)
+                    etapa_name, score_atual = etapa_col.replace('_Score', ''), loja_row.get(etapa_col, 0)
                     etapas_data.append({'Etapa': etapa_name, 'Impulso Atual': score_atual, 'Impulso Máximo': peso_max, 'Gap': peso_max - score_atual})
-
             if etapas_data:
                 df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap', ascending=False, ignore_index=True)
                 col_insight, col_chart = st.columns([1, 2])
@@ -316,24 +325,9 @@ def render_loja_page():
                 with col_chart:
                     st.subheader("Desempenho por Etapa")
                     fig = go.Figure()
-                    # GRÁFICO DE RADAR ATUALIZADO
-                    fig.add_trace(go.Scatterpolar(
-                        r=df_melhoria['Impulso Atual'],
-                        theta=df_melhoria['Etapa'],
-                        fill='toself',
-                        fillcolor='rgba(110, 231, 183, 0.4)', # Verde claro preenchimento
-                        line=dict(color='#10B981') # Verde escuro contorno
-                    ))
-                    fig.update_layout(
-                        polar=dict(
-                            radialaxis=dict(visible=False, range=[0, df_melhoria['Impulso Máximo'].max() * 1.1 if not df_melhoria.empty else 1]),
-                            angularaxis=dict(gridcolor="rgba(255, 255, 255, 0.2)")
-                        ),
-                        showlegend=False,
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        font_color="white"
-                    )
+                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Máximo'], theta=df_melhoria['Etapa'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)'), name='Impulso Máximo'))
+                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Atual'], theta=df_melhoria['Etapa'], fill='toself', fillcolor='rgba(0, 176, 246, 0.4)', line=dict(color='rgba(0, 176, 246, 1)'), name='Impulso Atual'))
+                    fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Impulso Máximo'].max() * 1.1 if not df_melhoria.empty else 1])), showlegend=True, paper_bgcolor="rgba(0,0,0,0)", font_color="white", margin=dict(l=40, r=40, t=80, b=40))
                     st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
