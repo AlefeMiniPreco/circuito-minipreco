@@ -382,7 +382,7 @@ def render_loja_page():
 
     loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
 
-    # Métricas principais com um design mais limpo
+    # Métricas principais
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Rank Atual", f"#{loja_row['Rank']}")
@@ -453,50 +453,41 @@ def render_loja_page():
         if not df_melhoria.empty:
             fig = go.Figure()
 
-            # Camada 1: Sombra do Potencial Máximo (contorno)
-            fig.add_trace(go.Scatterpolar(
-                r=df_melhoria['Impulso Máximo'],
-                theta=df_melhoria['Etapa'],
-                mode='lines',
-                line=dict(color='rgba(128, 128, 128, 0.5)', dash='dot', width=1.5),
-                name='Impulso Máximo'
-            ))
-
-            # Camada 2: Desempenho Atual (área preenchida)
+            # Camada 1: Desempenho Atual (área preenchida)
             fig.add_trace(go.Scatterpolar(
                 r=df_melhoria['Impulso Atual'],
                 theta=df_melhoria['Etapa'],
                 fill='toself',
                 fillcolor='rgba(0, 176, 246, 0.4)',
                 line=dict(color='rgba(0, 176, 246, 1)', width=2),
-                name='Impulso Atual'
-            ))
-            
-            # Camada 3: Rótulos com as notas (texto)
-            fig.add_trace(go.Scatterpolar(
-                r=df_melhoria['Impulso Atual'] * 1.15, # Posição do texto um pouco fora da área
-                theta=df_melhoria['Etapa'],
-                mode='text',
-                text=df_melhoria['Impulso Atual'].apply(lambda x: f"<b>{int(x)}</b>"),
-                textfont=dict(size=11, color='rgba(0, 176, 246, 1)'),
-                hoverinfo='skip'
+                name='Impulso Atual (minutos)'
             ))
 
-            # Layout adaptativo para temas claro e escuro
+            # Layout adaptativo com EIXO RADIAL VISÍVEL
             fig.update_layout(
                 showlegend=True,
-                legend=dict(x=0.5, y=-0.1, xanchor="center", orientation="h"),
+                legend=dict(x=0.5, y=-0.15, xanchor="center", orientation="h"),
                 polar=dict(
-                    radialaxis=dict(visible=False, showticklabels=False, range=[0, df_melhoria['Impulso Máximo'].max() * 1.3]),
-                    angularaxis=dict(linewidth=1) # Remove a cor fixa para se adaptar ao tema
+                    # Configuração do eixo radial (notas) para ser visível
+                    radialaxis=dict(
+                        visible=True,
+                        showticklabels=True,
+                        range=[0, df_melhoria['Impulso Máximo'].max()],
+                        gridcolor="rgba(128, 128, 128, 0.3)" # Cor neutra para a grade
+                    ),
+                    # Configuração do eixo angular (etapas)
+                    angularaxis=dict(
+                        linewidth=1,
+                        gridcolor="rgba(128, 128, 128, 0.3)" # Cor neutra para a grade
+                    )
                 ),
-                paper_bgcolor="rgba(0,0,0,0)", # Fundo transparente
-                plot_bgcolor="rgba(0,0,0,0)",  # Fundo transparente
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
                 margin=dict(l=60, r=60, t=80, b=60),
                 height=450
             )
 
-            # Usa o tema do Streamlit para garantir a legibilidade dos textos
+            # O tema "streamlit" garante que os textos dos eixos se adaptem ao tema claro/escuro
             st.plotly_chart(fig, use_container_width=True, theme="streamlit")
         else:
             st.info("Não há dados de desempenho por etapa para exibir.")
