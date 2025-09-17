@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM CORREÇÃO DE VALUE_ERROR (RETURN)
+# circuito_lojas_app.py — VERSÃO COM PÓDIO FOCADO EM TEMPO RESTANTE
 
 import numpy as np
 import pandas as pd
@@ -36,7 +36,7 @@ MONTHLY_ETAPAS = ["Engajamento", "VisualMerchandising", "Meta"]
 JOKER_ETAPAS = ["Meta"]
 
 # ----------------------------------------------------------------------
-# CSS (visuais com otimização para Mobile)
+# CSS (visuais)
 # ----------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -44,11 +44,15 @@ st.markdown("""
 .app-header { text-align: center; margin-top: -18px; margin-bottom: 6px; }
 .app-header h1 { font-size: 34px !important; margin: 0; letter-spacing: 0.6px; color: #ffffff; font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,0.6); }
 .app-header p { margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
-.podio-card h2 { font-size: 2em; margin: 8px 0 2px 0; }
+
+/* Estilos do Pódio */
+.podio-card h2 { font-size: 2em; margin: 4px 0; color: #6EE7B7; }
 .podio-card h3 { font-size: 1.1em; margin: 0; }
-.podio-card p.breakdown-text { margin: 0 0 8px 0; font-size: 0.8em; opacity: 0.7; }
+.podio-card p.metric-label { font-size: 0.8em; font-weight: 700; text-transform: uppercase; opacity: 0.7; margin: 8px 0 -5px 0; letter-spacing: 0.5px; }
+.podio-card p.secondary-metric { margin: 0 0 8px 0; font-size: 0.9em; opacity: 0.8; }
 .podio-card p.progress-text { margin: 4px 0 0 0; font-size:0.9em; opacity: 0.9;}
-.podio-card p.remaining-text { margin: 2px 0 0 0; font-size:0.8em; opacity: 0.7;}
+
+/* Estilos da Tabela de Classificação */
 .race-table { width: 100%; border-collapse: collapse; font-family: "Segoe UI", Tahoma, sans-serif; margin-top: 10px; font-size: 0.9em; }
 .race-table th { background: linear-gradient(90deg, #1f2937, #111827); color: #e5e7eb; padding: 12px 15px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
 .race-table td { padding: 14px 15px; color: #d1d5db; border-bottom: 1px solid #374151; }
@@ -61,6 +65,8 @@ st.markdown("""
 .loja-cell { font-weight: 800; color: #FFFFFF; font-size: 1.1em; }
 .progress-bar-container { background-color: #374151; border-radius: 10px; overflow: hidden; height: 18px; width: 100%; min-width: 100px; }
 .progress-bar { background: linear-gradient(90deg, #6EE7B7, #10B981); height: 100%; border-radius: 10px; text-align: center; color: white; font-size: 12px; line-height: 18px; font-weight: 600;}
+
+/* Media Query para Otimização Mobile */
 @media (max-width: 640px) {
     .app-header h1 { font-size: 28px !important; }
     .app-header p { font-size: 12px; }
@@ -86,7 +92,7 @@ def set_page(page_name):
     st.session_state.page = page_name
 
 def format_hours_and_minutes(hours_float: float):
-    if pd.isna(hours_float) or hours_float < 0: return "0h 00min"
+    if pd.isna(hours_float) or hours_float < 0: return "Finalizou!"
     hours = math.floor(hours_float)
     minutes = round((hours_float - hours) * 60)
     return f"{hours}h {minutes:02d}min"
@@ -138,7 +144,6 @@ def load_and_prepare_data(all_sheets: dict):
     etapas_scores_cols = [c for c in df_merged.columns if c.endswith('_Score')]
     periodos_df = df_merged[["Ciclo","Periodo","Ciclo_Cat"]].drop_duplicates().sort_values(["Ciclo_Cat","Periodo"]).reset_index(drop=True)
     etapas_pesos_df = pd.DataFrame(pesos_records)
-    # *** CORREÇÃO DO VALUEERROR AQUI ***
     return df_merged, etapas_scores_cols, periodos_df, etapas_pesos_df
 
 @st.cache_data(show_spinner=False)
@@ -153,9 +158,9 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
         df_copy["Progresso"] = (df_copy["Posicao_Horas"] / duracao_total_horas) * 100.0
     else:
         df_copy["Progresso"] = 0.0
-    df_copy["Tempo_Faltante_Horas"] = (duracao_total_horas - df_copy["Posicao_Horas"]).clip(lower=0)
-    df_copy["Rank"] = df_copy["Posicao_Horas"].rank(method="dense", ascending=False).astype(int)
-    df_copy.sort_values(["Posicao_Horas","Nome_Exibicao"], ascending=[False,True], inplace=True, ignore_index=True)
+    df_copy["Tempo_Faltante_Horas"] = duracao_total_horas - df_copy["Posicao_Horas"]
+    df_copy["Rank"] = df_copy["Posicao_Horas"].rank(method="dense", ascending=False).astype(int) # Rank baseado no avanço
+    df_copy.sort_values(["Posicao_Horas","Nome_Exibicao"], ascending=[False,True], inplace=True, ignore_index=True) # Sort baseado no avanço
     return df_copy
 
 @st.cache_data(show_spinner="Calculando ranking...")
@@ -185,7 +190,7 @@ def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_horas: floa
     st.markdown(f"<p>Ciclo: <b>{ciclo}</b> | Duração da corrida: <b>{duracao_horas:.0f} horas</b> {baseline_str}</p>", unsafe_allow_html=True)
     st.markdown("---")
 
-def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
+def render_podio_table(df_final: pd.DataFrame):
     st.markdown("### Pódio Atual")
     top3 = df_final.head(3)
     cols = st.columns(3)
@@ -194,10 +199,10 @@ def render_podio_table(df_final: pd.DataFrame, baseline_horas: float):
             st.markdown(
                 f"<div class='podio-card' style='padding:18px; border-radius:12px; background:linear-gradient(180deg,#0f172a,#111827);color:white; text-align:center; height: 100%; border: 1px solid #374151;'>"
                 f"<h3>{row['Rank']}º — {row['Nome_Exibicao']}</h3>"
-                f"<h2>{format_hours_and_minutes(row['Posicao_Horas'])}</h2>"
-                f"<p class='breakdown-text'>({baseline_horas:.0f}h de Base + {format_hours_and_minutes(row['Boost_Total_Min'] / 60)} de Impulso)</p>"
+                f"<p class='metric-label'>Tempo Restante</p>"
+                f"<h2>{format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</h2>"
+                f"<p class='secondary-metric'>Avanço: {format_hours_and_minutes(row['Posicao_Horas'])}</p>"
                 f"<p class='progress-text'>Progresso: {row['Progresso']:.1f}%</p>"
-                f"<p class='remaining-text'>Faltam: {format_hours_and_minutes(row['Tempo_Faltante_Horas'])}</p>"
                 f"</div>", unsafe_allow_html=True
             )
 
@@ -240,7 +245,7 @@ def render_geral_page():
     dias_restantes = duracao_horas - baseline_horas
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Tempo Restante da Corrida", f"{dias_restantes:.0f} dias" if dias_restantes >= 0 else "Finalizada")
+        st.metric("Término da Corrida", f"{dias_restantes:.0f} dias" if dias_restantes >= 0 else "Finalizada")
     with col2:
         st.metric("Líder Atual", df_final['Nome_Exibicao'].iloc[0] if not df_final.empty else "N/A")
     with col3:
@@ -265,7 +270,7 @@ def render_geral_page():
         html.append(f"<td class='rank-cell {rank_class}'>{rank}</td>")
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>+{format_hours_and_minutes(row['Boost_Total_Min'] / 60)}</td>")
-        html.append(f"<td>{row['Posicao_Horas']:.2f}h</td>")
+        html.append(f"<td>{format_hours_and_minutes(row['Posicao_Horas'])}</td>")
         html.append(f"<td>{prog_bar}</td>")
         if show_details:
             for col in score_cols_with_data:
@@ -276,6 +281,7 @@ def render_geral_page():
 
 def render_loja_page():
     st.header("Visão por Loja")
+    # Código completo restaurado
     df_final = st.session_state.get('df_final')
     etapas_pesos_df = st.session_state.get('etapas_pesos_df', pd.DataFrame())
     if df_final is None or df_final.empty:
@@ -286,7 +292,7 @@ def render_loja_page():
     if loja_sel:
         loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
         col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Avanço na Pista", f"{loja_row['Posicao_Horas']:.2f}h")
+        with col1: st.metric("Avanço na Pista", format_hours_and_minutes(loja_row['Posicao_Horas']))
         with col2: st.metric("Impulso (Notas)", f"+{format_hours_and_minutes(loja_row['Boost_Total_Min'] / 60)}")
         with col3: st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
         with col4: st.metric("Rank Atual", f"#{loja_row['Rank']}")
