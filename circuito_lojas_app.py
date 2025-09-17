@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM ANIMAÇÕES E MELHORIAS VISUAIS
+# circuito_lojas_app.py — VERSÃO COM ANIMAÇÕES CORRIGIDAS
 
 import numpy as np
 import pandas as pd
@@ -261,7 +261,7 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
     y_text = data.index - 0.35
     fig.add_trace(go.Scatter(x=data['Posicao_Horas'], y=y_text, mode='text', text=data['Nome_Exibicao'], textposition="top center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
     
-    # Adicionar carros com animação
+    # Adicionar carros (sem animação complexa por enquanto)
     for i, row in data.iterrows():
         fig.add_layout_image(dict(
             source=CAR_ICON_URL, 
@@ -293,47 +293,12 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_horas: float) -> go.Figure
         fixedrange=True
     )
     
-    # Adicionar animação para os carros
     fig.update_layout(
         height=max(600, 300 + 60*len(data)), 
         margin=dict(l=10, r=10, t=80, b=40), 
         plot_bgcolor="#1A2A3A", 
-        paper_bgcolor="rgba(26,42,58,0.7)",
-        updatemenus=[{
-            "type": "buttons",
-            "showactive": False,
-            "buttons": [{
-                "label": "Play Animação",
-                "method": "animate",
-                "args": [None, {
-                    "frame": {"duration": 1000, "redraw": True},
-                    "fromcurrent": True,
-                    "transition": {"duration": 500, "easing": "linear"}
-                }]
-            }]
-        }]
+        paper_bgcolor="rgba(26,42,58,0.7)"
     )
-    
-    # Criar frames para animação
-    frames = []
-    for progress in np.linspace(0, 1, 20):  # 20 frames para animação suave
-        frame_data = []
-        for i, row in data.iterrows():
-            # Posição animada do carro (começando em 0 e indo até a posição atual)
-            animated_x = row['Posicao_Horas'] * progress
-            frame_data.append(go.LayoutImage(
-                x=animated_x,
-                y=i,
-                sizex=max(1.8, duracao_total_horas / 20),
-                sizey=0.9,
-                xanchor="center",
-                yanchor="middle",
-                source=CAR_ICON_URL
-            ))
-        
-        frames.append(go.Frame(data=[], layout=go.Layout(images=frame_data)))
-    
-    fig.frames = frames
     
     return fig
 
@@ -492,38 +457,6 @@ def render_loja_page():
                         margin=dict(l=40, r=40, t=80, b=40)
                     )
                     
-                    # Adicionar animação ao gráfico de radar
-                    fig.update_layout(
-                        updatemenus=[{
-                            "type": "buttons",
-                            "showactive": False,
-                            "buttons": [{
-                                "label": "Play Animação",
-                                "method": "animate",
-                                "args": [None, {
-                                    "frame": {"duration": 1000, "redraw": True},
-                                    "fromcurrent": True,
-                                    "transition": {"duration": 500, "easing": "linear"}
-                                }]
-                            }]
-                        }]
-                    )
-                    
-                    # Criar frames para animação do radar
-                    frames = []
-                    for progress in np.linspace(0, 1, 10):
-                        frame_data = go.Scatterpolar(
-                            r=df_melhoria['Impulso Atual'] * progress,
-                            theta=df_melhoria['Etapa'],
-                            fill='toself',
-                            fillcolor='rgba(0, 176, 246, 0.4)',
-                            line=dict(color='rgba(0, 176, 246, 1)'),
-                            name='Impulso Atual'
-                        )
-                        frames.append(go.Frame(data=[frame_data]))
-                    
-                    fig.frames = frames
-                    
                     st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
@@ -545,10 +478,9 @@ def render_etapa_page():
         
         st.subheader(f"Ranking da Etapa: {etapa_sel}")
         
-        # Gráfico de barras animado para a etapa
+        # Gráfico de barras para a etapa
         fig = go.Figure()
         
-        # Adicionar barras com animação
         fig.add_trace(go.Bar(
             x=df_etapa.head(10)["Impulso na Etapa (min)"],
             y=df_etapa.head(10)["Nome_Exibicao"],
@@ -556,37 +488,6 @@ def render_etapa_page():
             marker=dict(color='#6EE7B7'),
             name=etapa_sel
         ))
-        
-        # Configurar animação
-        fig.update_layout(
-            updatemenus=[{
-                "type": "buttons",
-                "showactive": False,
-                "buttons": [{
-                    "label": "Play Animação",
-                    "method": "animate",
-                    "args": [None, {
-                        "frame": {"duration": 500, "redraw": True},
-                        "fromcurrent": True,
-                        "transition": {"duration": 300, "easing": "linear"}
-                    }]
-                }]
-            }]
-        )
-        
-        # Criar frames para animação das barras
-        frames = []
-        for progress in np.linspace(0, 1, 10):
-            frame_data = go.Bar(
-                x=df_etapa.head(10)["Impulso na Etapa (min)"] * progress,
-                y=df_etapa.head(10)["Nome_Exibicao"],
-                orientation='h',
-                marker=dict(color='#6EE7B7'),
-                name=etapa_sel
-            )
-            frames.append(go.Frame(data=[frame_data]))
-        
-        fig.frames = frames
         
         fig.update_layout(
             height=400,
