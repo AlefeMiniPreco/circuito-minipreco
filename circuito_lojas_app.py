@@ -369,34 +369,34 @@ def render_loja_page():
     st.header("Visão por Loja")
     df_final = st.session_state.get('df_final')
     etapas_pesos_df = st.session_state.get('etapas_pesos_df', pd.DataFrame())
-    
+
     if df_final is None or df_final.empty:
         st.warning("Selecione um Ciclo para ver os detalhes da loja.")
         return
 
     loja_options = sorted(df_final["Nome_Exibicao"].unique().tolist())
-    loja_sel = st.selectbox("Selecione a Loja:", loja_options) # [cite: 50]
+    loja_sel = st.selectbox("Selecione a Loja:", loja_options)
 
     if not loja_sel:
         return
 
     loja_row = df_final[df_final["Nome_Exibicao"] == loja_sel].iloc[0]
-    
+
     # Métricas principais com um design mais limpo
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Rank Atual", f"#{loja_row['Rank']}") # [cite: 52]
+        st.metric("Rank Atual", f"#{loja_row['Rank']}")
     with col2:
-        st.metric("Avanço na Pista", format_hours_and_minutes(loja_row['Posicao_Horas'])) # [cite: 51]
+        st.metric("Avanço na Pista", format_hours_and_minutes(loja_row['Posicao_Horas']))
     with col3:
-        st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%") # [cite: 52]
+        st.metric("Progresso Total", f"{loja_row['Progresso']:.1f}%")
     with col4:
-        st.metric("Tempo Restante", format_hours_and_minutes(loja_row['Tempo_Faltante_Horas'])) # [cite: 51]
+        st.metric("Tempo Restante", format_hours_and_minutes(loja_row['Tempo_Faltante_Horas']))
 
     st.markdown("---")
 
     # Preparação dos dados de melhoria
-    ciclo = st.session_state.ciclo # [cite: 53]
+    ciclo = st.session_state.ciclo
     df_melhoria = pd.DataFrame()
     if not etapas_pesos_df.empty:
         df_pesos_ciclo = etapas_pesos_df[etapas_pesos_df['Ciclo'] == ciclo]
@@ -404,7 +404,7 @@ def render_loja_page():
         etapas_data = []
         for etapa_col in st.session_state.etapas_scores_cols:
             peso_max = pesos_etapas.get(etapa_col, 0)
-            if peso_max > 0: # [cite: 54]
+            if peso_max > 0:
                 etapa_name = etapa_col.replace('_Score', '')
                 score_atual = loja_row.get(etapa_col, 0)
                 etapas_data.append({
@@ -416,103 +416,88 @@ def render_loja_page():
         if etapas_data:
             df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap', ascending=False, ignore_index=True)
 
-    col_insight, col_chart = st.columns([1, 2]) # [cite: 55]
+    col_insight, col_chart = st.columns([1, 2])
 
     with col_insight:
         st.subheader("Análise Estratégica")
-        
-        # Lógica para o LÍDER (1º lugar)
         if loja_row['Rank'] == 1:
             if len(df_final) > 1:
                 loja_vice = df_final[df_final['Rank'] == 2].iloc[0]
                 vantagem_horas = (loja_row['Posicao_Horas'] - loja_vice['Posicao_Horas'])
                 st.success(f"""
                 **Você é o líder do Circuito! 🚀**
-
-                Parabéns por manter a primeira posição. Sua vantagem atual sobre a loja **{loja_vice['Nome_Exibicao']}** é de **{format_hours_and_minutes(vantagem_horas)}**.
+                Sua vantagem sobre a loja **{loja_vice['Nome_Exibicao']}** é de **{format_hours_and_minutes(vantagem_horas)}**.
                 """)
                 st.markdown("**Como manter a liderança:**")
-                st.info("Foque nos pontos abaixo para aumentar ainda mais sua vantagem e garantir a vitória.")
             else:
                 st.success("**Você é o líder isolado do Circuito! 🏆**")
-
-        # Lógica para ULTRAPASSAGEM (demais posições)
         else:
             rank_alvo = loja_row['Rank'] - 1
             loja_alvo = df_final[df_final['Rank'] == rank_alvo].iloc[0]
             diff_horas = (loja_alvo['Posicao_Horas'] - loja_row['Posicao_Horas'])
-            
             st.warning(f"""
-            **Meta: Ultrapassar a Loja {loja_alvo['Nome_Exibicao']}!**
-            
-            A diferença para o próximo competidor é de **{format_hours_and_minutes(diff_horas)}**.
+            **Meta: Ultrapassar {loja_alvo['Nome_Exibicao']}!**
+            A diferença é de apenas **{format_hours_and_minutes(diff_horas)}**.
             """)
             st.markdown("**Plano de Ação:**")
-            st.info("Acelere focando nas seguintes oportunidades para ganhar posições:")
 
-        # Exibição dos pontos de melhoria (comum para ambos os casos)
-        top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3) # [cite: 56]
+        top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
         if top_melhorias.empty:
-            st.success("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!") # [cite: 57]
+            st.info("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!")
         else:
             for idx, row in top_melhorias.iterrows():
-                st.info(f"**{row['Etapa']}**: Potencial de ganho de até **{format_hours_and_minutes(row['Gap'] / 60)}**.") # [cite: 58]
+                st.info(f"**{row['Etapa']}**: Potencial de ganho de até **{format_hours_and_minutes(row['Gap'] / 60)}**.")
 
     with col_chart:
         st.subheader("Desempenho por Etapa")
         if not df_melhoria.empty:
-            # Garante que o impulso máximo seja um pouco maior que o atual para visualização
-            df_melhoria['Impulso Máximo Vis'] = df_melhoria[['Impulso Atual', 'Impulso Máximo']].max(axis=1) * 1.05
-
             fig = go.Figure()
-            
-            # Gráfico de Radar para o MÁXIMO (borda)
+
+            # Camada 1: Sombra do Potencial Máximo (contorno)
             fig.add_trace(go.Scatterpolar(
                 r=df_melhoria['Impulso Máximo'],
                 theta=df_melhoria['Etapa'],
                 mode='lines',
-                line=dict(color='rgba(0, 0, 0, 0.3)', dash='dot'),
+                line=dict(color='rgba(128, 128, 128, 0.5)', dash='dot', width=1.5),
                 name='Impulso Máximo'
-            )) # [cite: 59, 60]
+            ))
 
-            # Gráfico de Radar para o ATUAL (preenchido)
+            # Camada 2: Desempenho Atual (área preenchida)
             fig.add_trace(go.Scatterpolar(
                 r=df_melhoria['Impulso Atual'],
                 theta=df_melhoria['Etapa'],
                 fill='toself',
-                fillcolor='rgba(26, 188, 156, 0.6)',
-                line=dict(color='rgba(22, 160, 133, 1)'),
+                fillcolor='rgba(0, 176, 246, 0.4)',
+                line=dict(color='rgba(0, 176, 246, 1)', width=2),
                 name='Impulso Atual'
-            )) # [cite: 61, 62]
+            ))
+            
+            # Camada 3: Rótulos com as notas (texto)
+            fig.add_trace(go.Scatterpolar(
+                r=df_melhoria['Impulso Atual'] * 1.15, # Posição do texto um pouco fora da área
+                theta=df_melhoria['Etapa'],
+                mode='text',
+                text=df_melhoria['Impulso Atual'].apply(lambda x: f"<b>{int(x)}</b>"),
+                textfont=dict(size=11, color='rgba(0, 176, 246, 1)'),
+                hoverinfo='skip'
+            ))
 
-            # Atualização do Layout para TEMA CLARO
+            # Layout adaptativo para temas claro e escuro
             fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        showticklabels=True,
-                        tickfont=dict(color='rgba(0,0,0,0.6)'),
-                        gridcolor='rgba(0,0,0,0.2)'
-                    ),
-                    angularaxis=dict(
-                        tickfont=dict(size=12, color='black'),
-                        gridcolor='rgba(0,0,0,0.2)'
-                    ),
-                    bgcolor="rgba(255,255,255,0.9)"
-                ),
                 showlegend=True,
-                legend=dict(
-                    x=0.5,
-                    y=-0.15,
-                    xanchor="center",
-                    orientation="h"
+                legend=dict(x=0.5, y=-0.1, xanchor="center", orientation="h"),
+                polar=dict(
+                    radialaxis=dict(visible=False, showticklabels=False, range=[0, df_melhoria['Impulso Máximo'].max() * 1.3]),
+                    angularaxis=dict(linewidth=1) # Remove a cor fixa para se adaptar ao tema
                 ),
                 paper_bgcolor="rgba(0,0,0,0)", # Fundo transparente
-                font_color="black",
-                margin=dict(l=40, r=40, t=80, b=40)
-            ) # [cite: 63]
-            
-            st.plotly_chart(fig, use_container_width=True) # [cite: 67]
+                plot_bgcolor="rgba(0,0,0,0)",  # Fundo transparente
+                margin=dict(l=60, r=60, t=80, b=60),
+                height=450
+            )
+
+            # Usa o tema do Streamlit para garantir a legibilidade dos textos
+            st.plotly_chart(fig, use_container_width=True, theme="streamlit")
         else:
             st.info("Não há dados de desempenho por etapa para exibir.")
 
