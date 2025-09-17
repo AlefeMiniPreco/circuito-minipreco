@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# circuito_lojas_app.py — VERSÃO COM TABELA E VISÃO DE LOJA FOCADAS EM TEMPO RESTANTE (MINUTOS/SEGUNDOS)
+# circuito_lojas_app.py — VERSÃO COM DURAÇÃO EM MINUTOS E IMPULSOS EM SEGUNDOS
 
 import numpy as np
 import pandas as pd
@@ -85,21 +85,28 @@ def get_data_from_github():
 def set_page(page_name):
     st.session_state.page = page_name
 
-def format_minutes_and_seconds(minutes_float: float):
+def format_minutes_and_seconds(total_minutes_float: float):
     """Formata um valor float de minutos para uma string 'Xmin Ys'."""
-    if pd.isna(minutes_float): return "N/A"
-    if minutes_float < 0: return "Finalizou!"
-    minutes = math.floor(minutes_float)
-    seconds = round((minutes_float - minutes) * 60)
+    if pd.isna(total_minutes_float): return "N/A"
+    if total_minutes_float < 0: return "Finalizou!"
+    minutes = math.floor(total_minutes_float)
+    seconds = round((total_minutes_float - minutes) * 60)
     return f"{minutes}min {seconds:02d}s"
 
+def format_seconds_to_ms(total_seconds_float: float):
+    """Formata um valor float de segundos para uma string 'Xmin Ys'."""
+    if pd.isna(total_seconds_float): return "N/A"
+    if total_seconds_float < 0: return "N/A"
+    minutes = math.floor(total_seconds_float / 60)
+    seconds = round(total_seconds_float % 60)
+    return f"{minutes}min {seconds:02d}s"
+    
 def get_race_duration_minutes(ciclo: str):
-    """Retorna a duração da corrida em minutos (nº de dias do mês * 60)."""
+    """Retorna a duração da corrida em minutos (nº de dias do mês * 60 min/dia)."""
     local_month_map = MONTH_DAYS_MAP.copy()
     ano_atual = datetime.now().year
     if (ano_atual % 4 == 0 and ano_atual % 100 != 0) or (ano_atual % 400 == 0):
         local_month_map['Fevereiro'] = 29
-    # A lógica original era 1 dia = 1 hora de corrida. Agora, 1 dia = 60 minutos.
     return local_month_map.get(ciclo, 30) * 60
 
 @st.cache_data(show_spinner="Processando dados...")
@@ -113,11 +120,14 @@ def load_and_prepare_data(all_sheets: dict):
                 if not all(col in df_etapa.columns for col in ['NomeLoja','loja_key','Nota','Ciclo','Período']): continue
                 df_etapa.rename(columns={'loja_key': 'Loja', 'NomeLoja': 'Nome_Exibicao', 'Período': 'Periodo'}, inplace=True)
                 for col in ['Ciclo', 'Periodo']: df_etapa[col] = df_etapa[col].astype(str)
+                # O Score_Etapa agora é o impulso em SEGUNDOS
                 if 'PesoDaEtapa' in df_etapa.columns:
-                    nota_num, peso_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0), pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
+                    nota_num = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                    peso_num = pd.to_numeric(df_etapa['PesoDaEtapa'], errors='coerce').fillna(0.0)
                     df_etapa['Score_Etapa'] = nota_num * peso_num
                 else:
                     df_etapa['Score_Etapa'] = pd.to_numeric(df_etapa['Nota'], errors='coerce').fillna(0.0)
+                
                 df_consolidado = df_etapa[['Loja', 'Nome_Exibicao', 'Ciclo', 'Periodo', 'Score_Etapa']].copy()
                 df_consolidado.rename(columns={'Score_Etapa': f'{sheet_name}_Score'}, inplace=True)
                 all_data.append(df_consolidado)
@@ -151,8 +161,10 @@ def calculate_final_scores(df: pd.DataFrame, etapas_scores_cols: list, duracao_t
         if e not in df_copy.columns: df_copy[e] = 0.0
     score_cols_sem_coringa = [c for c in etapas_scores_cols if not any(joker in c for joker in JOKER_ETAPAS)]
     
-    df_copy["Boost_Total_Min"] = df_copy[score_cols_sem_coringa].sum(axis=1)
-    df_copy["Posicao_Minutos"] = baseline_minutos + df_copy["Boost_Total_Min"]
+    # Soma dos impulsos, que estão em segundos
+    df_copy["Boost_Total_Segundos"] = df_copy[score_cols_sem_coringa].sum(axis=1)
+    # Posição na pista é o avanço base (min) + impulso (convertido de segundos para minutos)
+    df_copy["Posicao_Minutos"] = baseline_minutos + (df_copy["Boost_Total_Segundos"] / 60.0)
     
     if duracao_total_minutos > 0:
         df_copy["Progresso"] = (df_copy["Posicao_Minutos"] / duracao_total_minutos) * 100.0
@@ -175,8 +187,8 @@ def filter_and_aggregate_data(data_original: pd.DataFrame, etapas_scores_cols: l
     aggregated = df.groupby(id_vars, as_index=False)[score_cols].sum(min_count=0)
     
     hoje = datetime.now()
+    # Avanço base agora é dia_atual * 60 para converter em minutos
     baseline_minutos = 0
-    # A lógica original era: avanço base = dia atual (em horas). Agora: dia atual * 60 (em minutos)
     if MONTH_MAP.get(ciclo) == hoje.month and hoje.year == 2025:
         baseline_minutos = hoje.day * 60
         
@@ -194,11 +206,11 @@ def render_header_and_periodo(campaign_name: str, ciclo:str, duracao_minutos: fl
     duracao_dias = duracao_minutos / 60
     baseline_dias = baseline_minutos / 60
     
-    baseline_str = f"| Avanço Base (Dia Atual): <b>{baseline_dias:.0f} de {duracao_dias:.0f} dias</b>" if baseline_dias > 0 else ""
+    baseline_str = f"| Avanço Base: <b>Dia {baseline_dias:.0f} de {duracao_dias:.0f}</b>" if baseline_dias > 0 else ""
     st.markdown(f"<p>Ciclo: <b>{ciclo}</b> | Duração da corrida: <b>{duracao_dias:.0f} dias</b> {baseline_str}</p>", unsafe_allow_html=True)
     st.markdown("---")
 
-def render_podio_table(df_final: pd.DataFrame, baseline_minutos: float):
+def render_podio_table(df_final: pd.DataFrame):
     st.markdown("### Pódio Atual")
     top3 = df_final.head(3)
     cols = st.columns(3)
@@ -226,7 +238,7 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_minutos: float) -> go.Figu
         
     fig.add_shape(type="line", x0=0, y0=-0.5, x1=0, y1=len(data)-0.5, line=dict(color="#10B981", width=4, dash="solid"), layer="above")
     
-    square_size = max(0.5, (duracao_total_minutos / 60) / 40)
+    square_size = max(0.5, duracao_total_minutos / 2400) 
     num_cols = 2 
     for i in range(math.ceil((len(data)+0.5) / square_size)):
         for j in range(num_cols):
@@ -234,14 +246,13 @@ def build_pista_fig(data: pd.DataFrame, duracao_total_minutos: float) -> go.Figu
             fig.add_shape(type="rect", x0=duracao_total_minutos + (j * square_size*60), y0=i*square_size - 0.5, x1=duracao_total_minutos + ((j+1) * square_size*60), y1=(i+1)*square_size - 0.5, line=dict(width=0.5, color="black"), fillcolor=color, layer="above")
 
     hover_texts = [
-        f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {format_minutes_and_seconds(row['Posicao_Minutos'])}<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_minutes_and_seconds(row['Boost_Total_Min'])}<br>Faltam: {format_minutes_and_seconds(row['Tempo_Faltante_Minutos'])}<br>Rank: #{row['Rank']}"
-        for i, row in data.iterrows()
+        f"<b>{row['Nome_Exibicao']}</b><br>Avanço: {format_minutes_and_seconds(row['Posicao_Minutos'])}<br>Progresso: {row['Progresso']:.1f}%<br>Impulso: {format_seconds_to_ms(row['Boost_Total_Segundos'])}<br>Faltam: {format_minutes_and_seconds(row['Tempo_Faltante_Minutos'])}<br>Rank: #{row['Rank']}"
+        for _, row in data.iterrows()
     ]
     y_text = data.index - 0.35
     fig.add_trace(go.Scatter(x=data['Posicao_Minutos'], y=y_text, mode='text', text=data['Nome_Exibicao'], textposition="top center", textfont=dict(color='white', size=10), hoverinfo='text', hovertext=hover_texts, showlegend=False))
     
     for i, row in data.iterrows():
-        # Ajustando o tamanho do ícone para a nova escala de minutos
         sizex = max(100, duracao_total_minutos / 20)
         fig.add_layout_image(dict(source=CAR_ICON_URL, xref="x", yref="y", x=row['Posicao_Minutos'], y=i, sizex=sizex, sizey=0.9, layer="below", xanchor="center", yanchor="middle"))
         
@@ -269,7 +280,7 @@ def render_geral_page():
     with col3:
         st.metric("Total de Lojas", f"{len(df_final)}")
         
-    render_podio_table(df_final, baseline_minutos)
+    render_podio_table(df_final)
     
     st.markdown("### Pista de Corrida do Circuito")
     fig_pista = build_pista_fig(df_final, st.session_state.get('duracao_minutos', 0))
@@ -280,9 +291,9 @@ def render_geral_page():
     score_cols = st.session_state.get('etapas_scores_cols', [])
     score_cols_with_data = [col for col in score_cols if col in df_final.columns and df_final[col].sum() > 0]
     
-    headers = ["Rank", "Loja", "Tempo Restante", "Progresso", "Impulso Total"]
+    headers = ["Rank", "Loja", "Tempo Restante", "Progresso", "Impulso Total (s)"]
     if show_details:
-        headers.extend([col.replace('_Score', '') for col in score_cols_with_data])
+        headers.extend([f"{col.replace('_Score', '')} (s)" for col in score_cols_with_data])
     
     html = [f"<table class='race-table'><thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead><tbody>"]
     
@@ -296,12 +307,11 @@ def render_geral_page():
         html.append(f"<td class='loja-cell'>{row['Nome_Exibicao']}</td>")
         html.append(f"<td>{format_minutes_and_seconds(row['Tempo_Faltante_Minutos'])}</td>")
         html.append(f"<td>{prog_bar}</td>")
-        html.append(f"<td>+{format_minutes_and_seconds(row['Boost_Total_Min'])}</td>")
+        html.append(f"<td>+{format_seconds_to_ms(row['Boost_Total_Segundos'])}</td>")
 
         if show_details:
             for col in score_cols_with_data:
-                # O valor da etapa já está em minutos, então formatamos diretamente
-                html.append(f"<td>{format_minutes_and_seconds(row.get(col, 0))}</td>")
+                html.append(f"<td>{format_seconds_to_ms(row.get(col, 0))}</td>")
         html.append("</tr>")
         
     html.append("</tbody></table>")
@@ -338,31 +348,31 @@ def render_loja_page():
             for etapa_col in st.session_state.etapas_scores_cols:
                 peso_max = pesos_etapas.get(etapa_col, 0)
                 if peso_max > 0:
-                    etapa_name, score_atual = etapa_col.replace('_Score', ''), loja_row.get(etapa_col, 0)
-                    etapas_data.append({'Etapa': etapa_name, 'Impulso Atual': score_atual, 'Impulso Máximo': peso_max, 'Gap': peso_max - score_atual})
+                    etapa_name = etapa_col.replace('_Score', '')
+                    score_atual = loja_row.get(etapa_col, 0)
+                    etapas_data.append({'Etapa': etapa_name, 'Impulso Atual (s)': score_atual, 'Impulso Máximo (s)': peso_max, 'Gap (s)': peso_max - score_atual})
                     
             if etapas_data:
-                df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap', ascending=False, ignore_index=True)
+                df_melhoria = pd.DataFrame(etapas_data).sort_values('Gap (s)', ascending=False, ignore_index=True)
                 col_insight, col_chart = st.columns([1, 2])
                 
                 with col_insight:
                     st.subheader("Pontos de Melhoria")
                     st.markdown("Oportunidades para ganhar impulso e avançar no circuito:")
-                    top_melhorias = df_melhoria[df_melhoria['Gap'] > 0.1].head(3)
+                    top_melhorias = df_melhoria[df_melhoria['Gap (s)'] > 0.1].head(3)
                     
                     if top_melhorias.empty: 
                         st.success("🎉 Parabéns! A loja atingiu o impulso máximo em todas as etapas!")
                     else:
                         for _, row in top_melhorias.iterrows():
-                            # O 'Gap' já está em minutos, formatamos diretamente
-                            st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{format_minutes_and_seconds(row['Gap'])}**.")
+                            st.info(f"**{row['Etapa']}**: Foque aqui para ganhar até **{format_seconds_to_ms(row['Gap (s)'])}**.")
                             
                 with col_chart:
-                    st.subheader("Desempenho por Etapa")
+                    st.subheader("Desempenho por Etapa (em Segundos)")
                     fig = go.Figure()
-                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Máximo'], theta=df_melhoria['Etapa'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)'), name='Impulso Máximo'))
-                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Atual'], theta=df_melhoria['Etapa'], fill='toself', fillcolor='rgba(0, 176, 246, 0.4)', line=dict(color='rgba(0, 176, 246, 1)'), name='Impulso Atual'))
-                    fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Impulso Máximo'].max() * 1.1 if not df_melhoria.empty else 1])), showlegend=True, paper_bgcolor="rgba(0,0,0,0)", font_color="white", margin=dict(l=40, r=40, t=80, b=40))
+                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Máximo (s)'], theta=df_melhoria['Etapa'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)'), name='Impulso Máximo (s)'))
+                    fig.add_trace(go.Scatterpolar(r=df_melhoria['Impulso Atual (s)'], theta=df_melhoria['Etapa'], fill='toself', fillcolor='rgba(0, 176, 246, 0.4)', line=dict(color='rgba(0, 176, 246, 1)'), name='Impulso Atual (s)'))
+                    fig.update_layout(polar=dict(bgcolor="rgba(0,0,0,0)", radialaxis=dict(visible=True, range=[0, df_melhoria['Impulso Máximo (s)'].max() * 1.1 if not df_melhoria.empty else 1])), showlegend=True, paper_bgcolor="rgba(0,0,0,0)", font_color="white", margin=dict(l=40, r=40, t=80, b=40))
                     st.plotly_chart(fig, use_container_width=True)
 
 def render_etapa_page():
@@ -380,8 +390,8 @@ def render_etapa_page():
     if etapa_sel:
         col_name = f"{etapa_sel}_Score"
         df_etapa = df_final[['Nome_Exibicao', col_name]].copy()
-        df_etapa.rename(columns={col_name: "Impulso na Etapa (min)"}, inplace=True)
-        df_etapa.sort_values("Impulso na Etapa (min)", ascending=False, inplace=True)
+        df_etapa.rename(columns={col_name: "Impulso na Etapa (s)"}, inplace=True)
+        df_etapa.sort_values("Impulso na Etapa (s)", ascending=False, inplace=True)
         
         st.subheader(f"Ranking da Etapa: {etapa_sel}")
         st.dataframe(df_etapa.head(10).reset_index(drop=True), use_container_width=True, hide_index=True)
